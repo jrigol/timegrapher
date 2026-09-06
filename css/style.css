@@ -62,7 +62,8 @@ body {
 .brand { display: flex; align-items: center; }
 /* El logotipo hereda el color del tema en vez de traer el negro con el que
    viene el fichero, que sobre la cabecera oscura no se vería. */
-.logo { height: 30px; width: auto; display: block; }
+.logo { height: 48px; width: auto; display: block; }
+@media (max-width: 620px) { .logo { height: 36px; } }
 /* Dos tintas: el reloj toma el acento y la palabra la tinta. Ambos grupos van
    con fill=currentColor, así que basta con darles `color` y el logotipo sigue
    a la paleta sin tocar el SVG. */
