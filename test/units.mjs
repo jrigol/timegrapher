@@ -285,5 +285,57 @@ console.log('\nRutas de dibujado');
   check('gráfico con un solo punto', !threw, threw ? threw.message : '');
 }
 
+/* Regresión de un fallo real: #cal-banner llevaba el atributo `hidden` y el CSS
+   definía `.banner { display: flex }`. Una regla de autor gana a la hoja del
+   navegador, así que el display:none que aporta [hidden] quedaba anulado y el
+   elemento no se ocultaba nunca por mucho que el JS pusiera hidden = true. */
+console.log('\nOcultación por atributo [hidden]');
+{
+  const fs = await import('node:fs');
+  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../css/style.css', import.meta.url), 'utf8');
+
+  // Los comentarios y los @media rompen un troceado ingenuo: sin quitarlos, el
+  // selector capturado arrastra el comentario anterior y no casa con nada.
+  const clean = css
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/@media[^{]*\{/g, '');
+  const rules = [...clean.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    .map((m) => ({ sel: m[1].trim(), body: m[2] }));
+
+  const guard = /\[hidden\]\s*\{[^}]*display\s*:\s*none\s*!important/.test(clean);
+  check('el CSS trae la guarda [hidden] { display: none !important }', guard);
+
+  // Elementos que el JS oculta con el atributo, y sus selectores.
+  const hiddenEls = [...html.matchAll(/<([a-z]+)\b([^>]*?)\/?>/g)]
+    .filter((m) => /\shidden(\s|\/|$)/.test(m[2]))
+    .map((m) => {
+      const id = (m[2].match(/id="([^"]+)"/) || [])[1];
+      const cls = (m[2].match(/class="([^"]+)"/) || [])[1];
+      return { id, classes: cls ? cls.split(/\s+/) : [] };
+    });
+  check('hay elementos que se ocultan con [hidden]', hiddenEls.length > 0,
+    `${hiddenEls.length} encontrados`);
+
+  // Cuáles de ellos tienen una regla de autor que fija `display` y, por tanto,
+  // dependen de la guarda para poder ocultarse.
+  const atRisk = [];
+  for (const el of hiddenEls) {
+    const selectors = [...el.classes.map((c) => '.' + c), ...(el.id ? ['#' + el.id] : [])];
+    for (const r of rules) {
+      if (/\[hidden\]/.test(r.sel)) continue;
+      if (!/(^|[^-\w])display\s*:/.test(r.body)) continue;
+      if (selectors.some((sel) => r.sel.split(',').some((part) => part.trim() === sel))) {
+        atRisk.push(`${el.id || el.classes.join('.')} (por «${r.sel}»)`);
+      }
+    }
+  }
+  // Que existan no es el fallo: el fallo sería que la guarda no estuviera. Pero
+  // si esta lista sale vacía es que el cruce no está mirando bien, y entonces la
+  // prueba no protege de nada.
+  check('el cruce localiza los que dependen de la guarda', atRisk.length > 0,
+    atRisk.join(', ') || 'ninguno — el análisis del CSS no está funcionando');
+}
+
 console.log(`\n${failures === 0 ? 'Todas las comprobaciones pasan.' : `${failures} comprobaciones fallan.`}`);
 process.exit(failures ? 1 : 0);

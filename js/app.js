@@ -50,7 +50,10 @@ const capture = new AudioCapture(onBlock);
 const CAL_MIN_SECONDS = 120;
 const CAL_GOOD_SECONDS = 300;
 
-let calDismissed = false;
+/** deviceId para el que se pulsó «Ahora no». El descarte es de ESE dispositivo:
+ *  al cambiar de sonda el aviso vuelve, que para la nueva sigue siendo cierto. */
+let calDismissedFor = null;
+const calDismissed = () => calDismissedFor !== null && calDismissedFor === cal.deviceId;
 
 /** Todo lo que depende de la frecuencia de muestreo se construye al arrancar. */
 const P = {
@@ -309,7 +312,7 @@ function paintCalBanner() {
     return;
   }
 
-  if (cal.candidate && !calDismissed) {
+  if (cal.candidate && !calDismissed()) {
     const c = cal.candidate.rec;
     const when = c.storedAt ? new Date(c.storedAt).toLocaleDateString('es-ES') : 'fecha desconocida';
     show('Hay una calibración guardada con este mismo nombre',
@@ -322,7 +325,7 @@ function paintCalBanner() {
     return;
   }
 
-  if (cal.source === 'none' && !calDismissed) {
+  if (cal.source === 'none' && !calDismissed()) {
     show('Este dispositivo no está calibrado',
       'La marcha arrastra el error del cristal de la tarjeta de sonido: hasta ±8,6 s/día, ' +
       'más que toda la banda de un cronómetro. La amplitud y el error de batida no se ven afectados. ' +
@@ -713,7 +716,6 @@ async function start() {
     S.peak = 0;
     S.tickTimes = [];
     S.lastBlockMs = performance.now();
-    if (cal.source !== 'none') calDismissed = false;
     t0Wall = performance.now() / 1000;
     for (const c of charts) c.clear();
     rows.length = 0;
@@ -852,7 +854,10 @@ function wire() {
     $('btn-cal').textContent = 'Iniciar medición';
     $('cal-live').textContent = 'Medición detenida.';
   });
-  $('cb-hide').addEventListener('click', () => { calDismissed = true; $('cal-banner').hidden = true; });
+  $('cb-hide').addEventListener('click', () => {
+    calDismissedFor = cal.deviceId;
+    $('cal-banner').hidden = true;
+  });
   $('cb-adopt').addEventListener('click', () => {
     const label = cal.candidate ? cal.candidate.rec.label : '';
     if (!cal.acceptCandidate()) return;

@@ -22,6 +22,13 @@
 
 * { box-sizing: border-box; }
 
+/* El atributo `hidden` trae su display:none de la hoja del NAVEGADOR, y
+   cualquier regla de autor que fije `display` lo pisa. Le pasó al banner de
+   calibración (.banner define display:flex): el botón «Ahora no» ejecutaba su
+   handler y ponía hidden = true, pero el elemento seguía en pantalla. Esta
+   guarda evita toda esa clase de fallo, no solo el caso concreto. */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--plane);
