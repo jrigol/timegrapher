@@ -286,29 +286,49 @@ console.log('\nRutas de dibujado');
 }
 
 /* El logotipo viene en negro sobre transparente: sobre la cabecera oscura no se
-   vería. Va inline y con currentColor para que siga al tema. */
-console.log('\nLogotipo');
+   vería. Va inline, separado en icono y palabra, y con currentColor en ambos
+   grupos para que el tema los coloree por separado sin tocar el SVG. */
+console.log('\nLogotipo y favicon');
 {
   const fs = await import('node:fs');
-  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  const logo = fs.readFileSync(new URL('../assets/logo.svg', import.meta.url), 'utf8');
+  const url = (f) => new URL(f, import.meta.url);
+  const html = fs.readFileSync(url('../index.html'), 'utf8');
+  const css = fs.readFileSync(url('../css/style.css'), 'utf8');
 
   const inline = html.match(/<svg class="logo"[\s\S]*?<\/svg>/);
   check('el logotipo va inline en la cabecera', !!inline);
   if (inline) {
     const svg = inline[0];
-    check('se colorea con currentColor', svg.includes('fill="currentColor"'));
+    const groups = [...svg.matchAll(/<g class="(mark|word)"[^>]*fill="currentColor"/g)];
+    check('icono y palabra van en grupos separados', groups.length === 2,
+      groups.map((g) => g[1]).join(', '));
+    check('los 23 trazados siguen ahí',
+      [...svg.matchAll(/<path /g)].length === 23,
+      `${[...svg.matchAll(/<path /g)].length}`);
     check('no arrastra el negro del fichero', !/#000000/i.test(svg));
-    check('no trae scripts ni imágenes externas',
+    check('no trae scripts ni referencias externas',
       !/<script|<image|xlink:href|https?:/i.test(svg));
     check('lo ignoran los lectores de pantalla', svg.includes('aria-hidden="true"'));
     check('conserva la proporción original', svg.includes('viewBox="0 0 1983 793"'));
   }
+  check('el CSS colorea cada tinta',
+    /\.logo \.mark \{[^}]*var\(--accent\)/.test(css) &&
+    /\.logo \.word \{[^}]*var\(--ink\)/.test(css));
   check('el nombre queda accesible aparte',
     /<span class="sr-only" data-i18n="app.title">/.test(html));
-  check('la clase sr-only existe en el CSS',
-    fs.readFileSync(new URL('../css/style.css', import.meta.url), 'utf8').includes('.sr-only'));
-  check('el fichero de assets también es themeable', logo.includes('currentColor'));
+  check('la clase sr-only existe en el CSS', css.includes('.sr-only'));
+
+  const fav = fs.readFileSync(url('../assets/favicon.svg'), 'utf8');
+  check('el favicon existe y es cuadrado', fav.includes('viewBox="0 0 512 512"'));
+  check('el favicon lleva fondo propio', /<rect[^>]*fill="#1d2351"/.test(fav));
+  check('el favicon usa solo el icono, no la palabra',
+    [...fav.matchAll(/<path /g)].length === 11,
+    `${[...fav.matchAll(/<path /g)].length} trazados`);
+  check('hay respaldo PNG para quien no lea SVG',
+    fs.existsSync(url('../assets/favicon.png')));
+  check('los tres enlaces del favicon están en el HTML',
+    html.includes('rel="icon"') && html.includes('rel="alternate icon"') &&
+    html.includes('rel="apple-touch-icon"'));
 }
 
 /* La ayuda contextual solo sirve si está completa y dice algo. */
