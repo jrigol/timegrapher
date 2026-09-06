@@ -285,6 +285,84 @@ console.log('\nRutas de dibujado');
   check('gráfico con un solo punto', !threw, threw ? threw.message : '');
 }
 
+/* El bloque de posiciones es donde vive el trabajo real: el diagnóstico está en
+   las diferencias entre posiciones, no en ninguna lectura suelta. */
+console.log('\nSesión por posiciones');
+{
+  const { PositionSession, POSITIONS, judgeDelta, judgeDrop } =
+    await import('../js/positions.js');
+
+  const s = new PositionSession();
+  check('arranca vacía', s.isEmpty && s.summary() === null);
+
+  // Se capturan desordenadas a propósito.
+  s.capture('CB', { rate: -6.2, amplitude: 251, beatError: 0.31 });
+  s.capture('EA', { rate: 4.1, amplitude: 288, beatError: 0.22 });
+  s.capture('EB', { rate: 2.8, amplitude: 284, beatError: 0.25 });
+  s.capture('CI', { rate: -1.4, amplitude: 259, beatError: 0.29 });
+
+  check('cuenta las capturadas', s.count === 4);
+  check('las devuelve en orden canónico',
+    s.entries().map((e) => e.key).join(',') === 'EA,EB,CB,CI',
+    s.entries().map((e) => e.key).join(','));
+
+  const sum = s.summary();
+  check('delta = máxima menos mínima', Math.abs(sum.delta - (4.1 - -6.2)) < 1e-9,
+    `${sum.delta.toFixed(1)} s/día`);
+  check('identifica los extremos', sum.max.key === 'EA' && sum.min.key === 'CB');
+
+  // La caída horizontal->vertical: media de EA/EB contra media de las de corona.
+  check('media horizontal', Math.abs(sum.horiz - 286) < 1e-9, `${sum.horiz}°`);
+  check('media vertical', Math.abs(sum.vert - 255) < 1e-9, `${sum.vert}°`);
+  check('caída de amplitud', Math.abs(sum.drop - 31) < 1e-9, `${sum.drop}°`);
+  check('error de batida máximo', Math.abs(sum.beatMax - 0.31) < 1e-9);
+
+  // Sin verticales no hay caída que calcular.
+  const h = new PositionSession();
+  h.capture('EA', { rate: 1, amplitude: 290, beatError: 0.1 });
+  h.capture('EB', { rate: 2, amplitude: 288, beatError: 0.1 });
+  check('sin verticales, no hay caída', h.summary().drop === null);
+
+  // Una amplitud que no se resolvió no debe contaminar la media.
+  const n = new PositionSession();
+  n.capture('EA', { rate: 1, amplitude: 290, beatError: 0.1 });
+  n.capture('CA', { rate: 2, amplitude: null, beatError: 0.1 });
+  check('la amplitud sin resolver se excluye', n.summary().vert === null);
+
+  // Una sola posición: hay resumen, pero el delta no significa nada.
+  const one = new PositionSession();
+  one.capture('EA', { rate: 5, amplitude: 280, beatError: 0.2 });
+  check('con una sola posición el delta es 0', one.summary().delta === 0);
+  check('y el juicio lo dice', judgeDelta(0, 1).text.includes('dos posiciones'));
+
+  check('delta 8 s/día pasa criterio de cronómetro', judgeDelta(8, 5).level === 'good');
+  check('delta 40 s/día manda revisar', judgeDelta(40, 5).level === 'serious');
+  check('caída de 20° es normal', judgeDrop(20).level === 'good');
+  check('caída de 70° no lo es', judgeDrop(70).level === 'serious');
+
+  // Exportación: separador ;, coma decimal y comillas escapadas, que es lo que
+  // espera un Excel en español.
+  const csv = s.toCsv({ reference: 'Seiko "SKX"; nº 1', bph: 21600, liftAngle: 52 });
+  const lines = csv.split('\n');
+  check('el CSV escapa comillas y separadores',
+    lines.some((l) => l.includes('"Seiko ""SKX""; nº 1"')));
+  check('el CSV usa coma decimal', csv.includes('4,1') && csv.includes('0,22'));
+  check('el CSV trae una fila por posición',
+    POSITIONS.filter((p) => s.get(p.key)).every((p) => csv.includes(`;${p.key};`)));
+  check('el CSV cierra con el delta', /Delta \(EA-CB\);10,3/.test(csv));
+
+  const txt = s.toText({ reference: 'X' });
+  check('el texto lleva la tabla y el resumen',
+    txt.includes('Esfera arriba') && txt.includes('Delta:') && txt.includes('Amplitud:'));
+  check('el texto usa coma decimal, como el CSV',
+    txt.includes('+4,1') && txt.includes('10,3') && !/\d\.\d/.test(txt));
+
+  s.clear('EA');
+  check('se puede borrar una posición suelta', s.count === 3 && s.get('EA') === null);
+  s.reset();
+  check('reset la vacía entera', s.isEmpty);
+}
+
 /* Regresión de un fallo real: #cal-banner llevaba el atributo `hidden` y el CSS
    definía `.banner { display: flex }`. Una regla de autor gana a la hoja del
    navegador, así que el display:none que aporta [hidden] quedaba anulado y el

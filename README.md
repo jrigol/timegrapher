@@ -107,6 +107,31 @@ calibración de vez en cuando; no prometas precisión absoluta mejor de 1–2 s/
 **Solo afecta a la marcha.** El error de batida es una diferencia (100 ppm sobre
 1 ms son 0,0001 ms) y la amplitud depende de `dt/T`, donde el factor se cancela.
 
+## Medir por posiciones
+
+El diagnóstico de un reloj no está en ninguna lectura suelta, sino en las
+diferencias entre posiciones. La sección *Posiciones* recoge las seis estándar:
+
+1. Coloca el reloj y pulsa la posición — o su número, del **1 al 6**, que es lo
+   práctico cuando tienes las manos ocupadas. `Esc` cancela.
+2. La medida se reinicia (los datos de la posición anterior son de otro montaje)
+   y espera a que la lectura **se estabilice**: una ventana entera de datos
+   nuevos, la marcha quieta dentro de 2 s/día y la amplitud dentro de 6°. Si
+   detecta que has vuelto a mover el reloj, reinicia la cuenta.
+3. Al estabilizarse captura sola marcha, amplitud y error de batida.
+
+Con dos o más posiciones aparecen las cifras que importan:
+
+- **Delta**: marcha máxima menos mínima. Es el criterio con el que se juzga un
+  reloj; el COSC admite hasta 10 s/día en un cronómetro. Las celdas de las dos
+  posiciones extremas quedan marcadas.
+- **Caída de amplitud** de horizontal a vertical. Por encima de unos 50° hay que
+  mirar pivotes o poise.
+- **Error de batida máximo** de la serie.
+
+*Copiar* deja la tabla en el portapapeles como texto, y *CSV* la descarga con
+separador `;` y coma decimal, que es lo que espera un Excel en español.
+
 ## Cómo se calcula cada cosa
 
 **Alternancias por hora.** Autocorrelación de la envolvente, en paralelo al

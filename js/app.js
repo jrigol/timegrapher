@@ -5,6 +5,7 @@ import { BphDetector, STANDARD_BPH } from './dsp/bph.js';
 import { RateTracker } from './dsp/tracker.js';
 import { AmplitudeMeter, dtFromAmplitude } from './dsp/amplitude.js';
 import { ClockCalibration } from './calibration.js';
+import { POSITIONS, PositionSession, judgeDelta, judgeDrop } from './positions.js';
 import { PaperTape } from './ui/paper.js';
 import { TimeSeries } from './ui/charts.js';
 import { T } from './ui/theme.js';
@@ -33,6 +34,25 @@ const S = {
   tickTimes: [],
   deviceLabel: '',
 };
+
+const session = new PositionSession();
+
+/**
+ * Criterios de estabilidad.
+ *
+ * Al rotar el reloj la ventana deslizante del ajuste mezcla durante unos
+ * segundos la posición vieja con la nueva, y ese es justo el momento en que uno
+ * está mirando la pantalla esperando el número. Se exige, antes de dar la
+ * lectura por buena: una ventana entera de datos posteriores a la colocación,
+ * que la marcha no se mueva, y que la amplitud tampoco.
+ */
+const SETTLE_LOOKBACK = 5;      // s de historia que se examinan
+const SETTLE_RATE_SPREAD = 2.0; // s/día de recorrido admitido
+const SETTLE_AMP_SPREAD = 6;    // grados
+const SETTLE_MIN_SAMPLES = 12;
+
+/** Medida de posición en curso. */
+const M = { key: null, startedAt: 0, recent: [], anchorsAt: 0 };
 
 const cal = new ClockCalibration();
 const capture = new AudioCapture(onBlock);
@@ -265,10 +285,177 @@ function updateInner() {
     }
   }
 
+  measureStep(fit, amp, now);
   paintCalibration();
   paintCalBanner();
   paintDiag();
   redraw();
+}
+
+/** Arranca (o reinicia) la medida de una posición. */
+function measureStart(key) {
+  if (!S.running) { setStatus('Arranca la captura antes de medir posiciones.', true); return; }
+  M.key = key;
+  M.startedAt = performance.now() / 1000;
+  M.recent = [];
+  M.anchorsAt = P.tracker.anchors;
+  // Se descarta lo medido en la posición anterior: son datos de otro montaje.
+  P.tracker.reset();
+  P.amp.reset();
+  paintPositions();
+}
+
+function measureCancel() {
+  M.key = null;
+  paintPositions();
+}
+
+/**
+ * @returns {{ready:boolean, progress:number, why:string}}
+ */
+function settleState(fit, amp, now) {
+  const elapsed = now - M.startedAt;
+  const progress = Math.max(0, Math.min(1, elapsed / S.fitWindow));
+
+  // Un reanclaje del contador de batidas es una discontinuidad dura: el reloj
+  // se ha movido. Se reinicia el cronómetro de asentamiento.
+  if (P.tracker.anchors !== M.anchorsAt) {
+    M.anchorsAt = P.tracker.anchors;
+    M.startedAt = now;
+    M.recent = [];
+    return { ready: false, progress: 0, why: 'movimiento detectado' };
+  }
+  if (!fit) return { ready: false, progress, why: 'sin señal' };
+  if (elapsed < S.fitWindow) return { ready: false, progress, why: 'llenando la ventana' };
+  if (M.recent.length < SETTLE_MIN_SAMPLES) return { ready: false, progress, why: 'reuniendo muestras' };
+
+  const rates = M.recent.map((r) => r.rate).filter(isFinite);
+  const spread = Math.max(...rates) - Math.min(...rates);
+  if (spread > SETTLE_RATE_SPREAD) {
+    return { ready: false, progress, why: `marcha aún moviéndose (${spread.toFixed(1)} s/día)` };
+  }
+  const amps = M.recent.map((r) => r.amp).filter((v) => v != null && isFinite(v));
+  if (amps.length >= SETTLE_MIN_SAMPLES / 2) {
+    const aSpread = Math.max(...amps) - Math.min(...amps);
+    if (aSpread > SETTLE_AMP_SPREAD) {
+      return { ready: false, progress, why: `amplitud aún moviéndose (${aSpread.toFixed(0)}°)` };
+    }
+  }
+  return { ready: true, progress: 1, why: '' };
+}
+
+function measureStep(fit, amp, now) {
+  if (!M.key) return;
+  if (!S.running) { measureCancel(); return; }
+
+  M.recent.push({ t: now, rate: fit ? fit.rate : NaN, amp });
+  while (M.recent.length && M.recent[0].t < now - SETTLE_LOOKBACK) M.recent.shift();
+
+  const st = settleState(fit, amp, now);
+  if (st.ready && fit) {
+    session.capture(M.key, {
+      rate: fit.rate,
+      amplitude: amp,
+      beatError: fit.beatError,
+      sigma: fit.rateSigma,
+    });
+    const name = POSITIONS.find((p) => p.key === M.key).name;
+    setStatus(`${name}: ${fit.rate >= 0 ? '+' : ''}${fit.rate.toFixed(1)} s/día` +
+      `${amp != null ? ` · ${Math.round(amp)}°` : ''} · ${fit.beatError.toFixed(2)} ms. Capturado.`);
+    M.key = null;
+  }
+  paintPositions(st);
+}
+
+/* --------------------------------------------------------- posiciones --- */
+
+function paintPositions(st) {
+  const grid = $('pos-grid');
+  if (grid.childElementCount !== POSITIONS.length) {
+    grid.innerHTML = '';
+    POSITIONS.forEach((p, i) => {
+      const b = document.createElement('button');
+      b.className = 'pos-cell';
+      b.dataset.key = p.key;
+      b.title = `${p.name} — tecla ${i + 1}`;
+      b.addEventListener('click', () => {
+        if (M.key === p.key) measureCancel();
+        else measureStart(p.key);
+      });
+      grid.appendChild(b);
+    });
+  }
+
+  const sum = session.summary();
+  for (const el of grid.children) {
+    const key = el.dataset.key;
+    const p = POSITIONS.find((q) => q.key === key);
+    const rec = session.get(key);
+    const busy = M.key === key;
+    el.className = 'pos-cell'
+      + (busy ? ' busy' : rec ? ' filled' : '')
+      + (!busy && rec && sum && sum.count > 1 && sum.max.key === key ? ' extreme-hi' : '')
+      + (!busy && rec && sum && sum.count > 1 && sum.min.key === key ? ' extreme-lo' : '');
+
+    if (busy) {
+      const pct = Math.round((st ? st.progress : 0) * 100);
+      el.innerHTML =
+        `<span class="pk">${p.key} · midiendo</span>` +
+        `<span class="pn">${p.name}</span>` +
+        `<span class="ps">${st && st.ready === false ? escapeHtml(st.why) : 'estabilizando…'}</span>` +
+        `<div class="pos-bar"><div style="width:${pct}%"></div></div>`;
+    } else if (rec) {
+      el.innerHTML =
+        `<span class="pk">${p.key}</span>` +
+        `<span class="pn">${p.name}</span>` +
+        `<span class="pv">${rec.rate >= 0 ? '+' : ''}${rec.rate.toFixed(1)}<small style="font-size:11px;font-weight:400"> s/día</small></span>` +
+        `<span class="ps">${rec.amplitude == null ? '—' : Math.round(rec.amplitude) + '°'} · ${rec.beatError.toFixed(2)} ms</span>`;
+    } else {
+      el.innerHTML =
+        `<span class="pk">${p.key}</span>` +
+        `<span class="pn">${p.name}</span>` +
+        `<span class="ps">sin medir</span>`;
+    }
+  }
+
+  paintPosSummary(sum);
+}
+
+function paintPosSummary(sum) {
+  const el = $('pos-summary');
+  if (!sum) {
+    el.innerHTML = '<div class="pos-empty">Sin posiciones medidas. El delta necesita al menos dos.</div>';
+    return;
+  }
+  const dj = judgeDelta(sum.delta, sum.count);
+  const rj = judgeDrop(sum.drop);
+  const stat = (cls, k, v, n) =>
+    `<div class="pos-stat ${cls}"><span class="k">${k}</span><span class="v">${v}</span><span class="n">${n}</span></div>`;
+
+  let html = stat(dj.level, 'Delta de marcha',
+    sum.count > 1 ? `${sum.delta.toFixed(1)} s/día` : '—',
+    sum.count > 1 ? `${sum.max.key} ${sum.max.rate >= 0 ? '+' : ''}${sum.max.rate.toFixed(1)} · ${sum.min.key} ${sum.min.rate >= 0 ? '+' : ''}${sum.min.rate.toFixed(1)} — ${dj.text}` : dj.text);
+
+  if (sum.drop != null) {
+    html += stat(rj.level, 'Caída de amplitud', `${Math.round(sum.drop)}°`,
+      `horizontal ${Math.round(sum.horiz)}° · vertical ${Math.round(sum.vert)}° — ${rj.text}`);
+  } else {
+    html += stat('', 'Caída de amplitud', '—', 'hacen falta una horizontal y una vertical');
+  }
+
+  html += stat('', 'Error de batida máximo', `${sum.beatMax.toFixed(2)} ms`, `en ${sum.count} de 6 posiciones`);
+  el.innerHTML = html;
+}
+
+function sessionMeta() {
+  return {
+    reference: $('pos-ref').value.trim(),
+    bph: S.bph,
+    liftAngle: P.amp ? P.amp.liftAngle : Number($('lift').value),
+    calibration: cal.source === 'none'
+      ? 'sin calibrar'
+      : `${cal.ppm >= 0 ? '+' : ''}${cal.ppm.toFixed(2)} ppm (${cal.source === 'measured' ? 'medida' : 'guardada'})`,
+  };
 }
 
 const fmtSd = (ppm) => `±${Math.abs(ppm * 0.0864).toFixed(ppm * 0.0864 < 0.1 ? 3 : 2)} s/día`;
@@ -873,6 +1060,49 @@ function wire() {
     $('cal-live').textContent = 'Corrección borrada: la marcha vuelve a depender del cristal sin corregir.';
   });
 
+  $('pos-clear').addEventListener('click', () => {
+    if (session.isEmpty) return;
+    if (!confirm(`Se borrarán las ${session.count} posiciones medidas. ¿Seguir?`)) return;
+    session.reset();
+    measureCancel();
+  });
+  $('pos-copy').addEventListener('click', async () => {
+    if (session.isEmpty) { setStatus('No hay posiciones que copiar.', true); return; }
+    try {
+      await navigator.clipboard.writeText(session.toText(sessionMeta()));
+      setStatus('Tabla de posiciones copiada al portapapeles.');
+    } catch {
+      setStatus('El navegador no ha dejado copiar. Usa CSV.', true);
+    }
+  });
+  $('pos-csv').addEventListener('click', () => {
+    if (session.isEmpty) { setStatus('No hay posiciones que exportar.', true); return; }
+    const meta = sessionMeta();
+    const name = (meta.reference || 'timegrapher').replace(/[^\w\-]+/g, '_');
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    // BOM para que Excel en español no destroce los acentos.
+    const blob = new Blob(['\ufeff' + session.toCsv(meta)], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${name}-${stamp}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+
+  // Manos ocupadas: 1-6 eligen posición, Esc cancela la medida en curso.
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'Escape' && M.key) { measureCancel(); return; }
+    const n = Number(e.key);
+    if (n >= 1 && n <= POSITIONS.length) {
+      e.preventDefault();
+      const key = POSITIONS[n - 1].key;
+      if (M.key === key) measureCancel(); else measureStart(key);
+    }
+  });
+
   window.addEventListener('resize', redraw);
 
   // Red de seguridad: si el contexto quedó suspendido, cualquier gesto
@@ -921,6 +1151,7 @@ async function init() {
   }
   navigator.mediaDevices.addEventListener?.('devicechange', () => refreshDevices($('device').value));
   paintCalList();
+  paintPositions();
   redraw();
   setInterval(update, 200);
 }

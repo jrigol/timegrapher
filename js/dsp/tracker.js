@@ -19,6 +19,7 @@ export class RateTracker {
     this.ticks = [];      // {i, t}
     this.keepSeconds = 120;
     this.tolerance = 0.25; // fracción de batida admisible al encajar el índice
+    this.anchors = 0;      // veces que se ha tenido que reanclar la numeración
     this.reset();
   }
 
@@ -66,6 +67,7 @@ export class RateTracker {
   }
 
   _anchor(t) {
+    this.anchors++;   // señal dura de discontinuidad: se ha movido el reloj
     this.ticks = [];
     this.lastT = t; this.lastI = 0; this.t0 = t; this.rejects = 0;
     return 0;

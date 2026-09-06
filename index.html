@@ -64,6 +64,21 @@
     </div>
   </section>
 
+  <section class="card positions-card">
+    <div class="card-head">
+      <h2>Posiciones</h2>
+      <input id="pos-ref" class="ref-input" placeholder="Reloj o referencia" maxlength="60">
+      <div class="card-tools">
+        <button id="pos-copy" class="ghost">Copiar</button>
+        <button id="pos-csv" class="ghost">CSV</button>
+        <button id="pos-clear" class="ghost">Vaciar</button>
+      </div>
+    </div>
+    <p class="hint">Coloca el reloj y pulsa la posición (o su número, del 1 al 6). Mide sola en cuanto la lectura se estabiliza.</p>
+    <div id="pos-grid" class="pos-grid"></div>
+    <div id="pos-summary" class="pos-summary"></div>
+  </section>
+
   <section class="panels">
     <div class="card tape-card">
       <div class="card-head">
