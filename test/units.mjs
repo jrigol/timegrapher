@@ -285,6 +285,32 @@ console.log('\nRutas de dibujado');
   check('gráfico con un solo punto', !threw, threw ? threw.message : '');
 }
 
+/* El logotipo viene en negro sobre transparente: sobre la cabecera oscura no se
+   vería. Va inline y con currentColor para que siga al tema. */
+console.log('\nLogotipo');
+{
+  const fs = await import('node:fs');
+  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const logo = fs.readFileSync(new URL('../assets/logo.svg', import.meta.url), 'utf8');
+
+  const inline = html.match(/<svg class="logo"[\s\S]*?<\/svg>/);
+  check('el logotipo va inline en la cabecera', !!inline);
+  if (inline) {
+    const svg = inline[0];
+    check('se colorea con currentColor', svg.includes('fill="currentColor"'));
+    check('no arrastra el negro del fichero', !/#000000/i.test(svg));
+    check('no trae scripts ni imágenes externas',
+      !/<script|<image|xlink:href|https?:/i.test(svg));
+    check('lo ignoran los lectores de pantalla', svg.includes('aria-hidden="true"'));
+    check('conserva la proporción original', svg.includes('viewBox="0 0 1983 793"'));
+  }
+  check('el nombre queda accesible aparte',
+    /<span class="sr-only" data-i18n="app.title">/.test(html));
+  check('la clase sr-only existe en el CSS',
+    fs.readFileSync(new URL('../css/style.css', import.meta.url), 'utf8').includes('.sr-only'));
+  check('el fichero de assets también es themeable', logo.includes('currentColor'));
+}
+
 /* La ayuda contextual solo sirve si está completa y dice algo. */
 console.log('\nAyuda contextual');
 {

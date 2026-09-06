@@ -208,6 +208,7 @@ css/style.css
 js/app.js             orquestación: cadena por bloque y pintado
 js/i18n.js            diccionario es/en, formato numérico y traducción del marcado
 js/ui/tooltip.js      ayuda contextual: los botones «i» de cada concepto
+assets/logo.svg       logotipo, con fill=currentColor para seguir al tema
 js/positions.js       sesión por posiciones, delta y exportación
 js/audio.js           getUserMedia + AudioContext (procesado del navegador desactivado)
 js/calibration.js     corrección del reloj de muestreo

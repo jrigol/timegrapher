@@ -59,6 +59,17 @@ body {
   z-index: 10;
 }
 .bar h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; }
+.brand { display: flex; align-items: center; }
+/* El logotipo hereda el color del tema en vez de traer el negro con el que
+   viene el fichero, que sobre la cabecera oscura no se vería. */
+.logo { height: 30px; width: auto; display: block; color: var(--ink); }
+/* Texto solo para lectores de pantalla: el logotipo ya lleva el nombre, pero
+   es un dibujo y no se puede leer. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
 .bar-controls { display: flex; gap: 8px; justify-self: end; }
 .status { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
 .status.err { color: var(--critical); }
