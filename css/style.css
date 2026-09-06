@@ -196,4 +196,23 @@ summary::marker { color: var(--muted); }
 .cal-state .k { font-size: 11px; color: var(--muted); }
 .cal-state .v { font-size: 14px; font-variant-numeric: tabular-nums; }
 .cal-run { display: flex; gap: 8px; flex-wrap: wrap; }
+.cal-stored { display: grid; gap: 6px; }
+.cal-stored-head { font-size: 11px; color: var(--muted); }
+.cal-list { display: grid; gap: 4px; }
+.cal-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid var(--border); border-radius: 6px;
+  font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.cal-row.active { border-color: var(--good); }
+.cal-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-row .val { color: var(--ink); }
+.cal-row .when { color: var(--muted); }
+.cal-row .tag {
+  font-size: 10px; color: var(--good);
+  border: 1px solid var(--good); border-radius: 999px; padding: 1px 7px;
+}
+.cal-row button { padding: 2px 8px; font-size: 11px; }
+.cal-empty { font-size: 12px; color: var(--muted); padding: 4px 0; }
 .cal-live { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; line-height: 1.5; }

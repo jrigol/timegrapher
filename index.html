@@ -25,6 +25,7 @@
       <span id="cb-text"></span>
     </div>
     <div class="banner-actions">
+      <button id="cb-adopt" class="primary" hidden>Aplicar esta</button>
       <button id="cb-start" class="primary">Calibrar ahora</button>
       <button id="cb-apply" class="primary" hidden>Aplicar y guardar</button>
       <button id="cb-cancel" class="ghost" hidden>Cancelar</button>
@@ -209,6 +210,13 @@
           <button id="btn-cal" class="ghost">Iniciar medición</button>
           <button id="btn-cal-apply" class="ghost" disabled>Aplicar y guardar</button>
           <button id="btn-cal-clear" class="ghost">Borrar</button>
+        </div>
+        <div class="cal-stored">
+          <div class="cal-stored-head">Calibraciones guardadas en este navegador</div>
+          <div id="cal-list" class="cal-list"></div>
+          <small>Una por dispositivo: cada tarjeta lleva su propio cristal. Se guardan
+          en <code>localStorage</code>, que va por origen, así que no viajan entre
+          <code>localhost</code> y el sitio publicado.</small>
         </div>
         <div class="cal-live" id="cal-live">Requiere la captura en marcha, con la pestaña en primer plano. La incertidumbre cae como D<sup>1,5</sup>: 2 min dan ±0,12 s/día y 5 min ±0,03 s/día, de sobra para lo que resuelve el aparato.</div>
       </div>

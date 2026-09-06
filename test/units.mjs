@@ -89,6 +89,88 @@ console.log('\nCalibración del reloj de muestreo');
   check('borrado deja el factor a 1', cal2.factor === 1 && cal2.source === 'none');
 }
 
+/* Cada tarjeta lleva su propio cristal: dos dongles del mismo modelo se separan
+   fácilmente 200 ppm. La corrección va por dispositivo o no vale para nada. */
+console.log('\nCalibración por dispositivo');
+{
+  const feed = (cal, ppm, seconds = 300) => {
+    const fsReal = 48000 * (1 + ppm / 1e6);
+    const blocks = Math.floor((seconds * fsReal) / 4096);
+    for (let b = 0; b < blocks; b++) {
+      const frame = b * 4096;
+      cal.addPoint(frame, (frame / fsReal) * 1000, 0);
+    }
+    return cal.commit();
+  };
+
+  const cal = new ClockCalibration();
+  cal.start(48000, 'sonda-A', 'USB PnP Sound Device');
+  feed(cal, 104.3);
+  cal.start(48000, 'sonda-B', 'Otra tarjeta');
+  feed(cal, -61.7);
+
+  check('dos dispositivos, dos entradas', cal.list().length === 2);
+
+  cal.load('sonda-A', 48000, 'USB PnP Sound Device');
+  check('recupera A por id', cal.source === 'stored' && Math.abs(cal.ppm - 104.3) < 0.5,
+    `${cal.ppm.toFixed(2)} ppm`);
+  cal.load('sonda-B', 48000, 'Otra tarjeta');
+  check('recupera B por id', cal.source === 'stored' && Math.abs(cal.ppm + 61.7) < 0.5,
+    `${cal.ppm.toFixed(2)} ppm`);
+  check('A no contamina a B', Math.abs(cal.ppm - 104.3) > 100);
+
+  // Dispositivo nuevo sin nada guardado: no se aplica nada.
+  cal.load('sonda-C', 48000, 'Tarjeta nunca vista');
+  check('dispositivo desconocido queda sin calibrar', cal.source === 'none' && cal.factor === 1);
+  check('sin candidata si el nombre no coincide', cal.candidate === null);
+
+  // El deviceId cambió (datos del sitio borrados, otro puerto USB) pero el
+  // nombre es el mismo y solo hay una guardada: se PROPONE, no se aplica sola.
+  const r = cal.load('sonda-A-nuevo-id', 48000, 'USB PnP Sound Device');
+  check('propone candidata por nombre', !r.applied && !!r.candidate);
+  check('no la aplica por su cuenta', cal.source === 'none' && cal.factor === 1);
+  cal.acceptCandidate();
+  check('al aceptarla se aplica', Math.abs(cal.ppm - 104.3) < 0.5, `${cal.ppm.toFixed(2)} ppm`);
+  check('se reclava y no duplica', cal.list().length === 2 &&
+    cal.list().some((i) => i.deviceId === 'sonda-A-nuevo-id') &&
+    !cal.list().some((i) => i.deviceId === 'sonda-A'));
+
+  // Dos unidades del mismo modelo, ambas calibradas: el nombre ya no desempata,
+  // así que no se propone ninguna. Aplicar la de otra unidad sería un error de
+  // hasta 200 ppm.
+  cal.start(48000, 'gemela-1', 'Dongle gemelo');
+  feed(cal, 90);
+  cal.start(48000, 'gemela-2', 'Dongle gemelo');
+  feed(cal, -80);
+  cal.load('gemela-3', 48000, 'Dongle gemelo');
+  check('nombre ambiguo: no propone nada', cal.candidate === null && cal.source === 'none');
+
+  cal.remove('gemela-1'); cal.remove('gemela-2');
+  check('borrado quita la entrada', !cal.list().some((i) => i.deviceId === 'gemela-1'));
+}
+
+/* Reabrir la captura crea un AudioContext nuevo y currentFrame vuelve a cero:
+   una medición a caballo entre los dos tramos da un resultado sin sentido. */
+console.log('\nAbortar la medición al reabrir la captura');
+{
+  const cal = new ClockCalibration();
+  cal.start(48000, 'sonda-X', 'X');
+  const fsReal = 48000 * (1 + 104.3 / 1e6);
+  for (let b = 0; b < 900; b++) cal.addPoint(b * 4096, ((b * 4096) / fsReal) * 1000, 0);
+  check('hay medición en curso', cal.running && cal.n > 800);
+
+  const wasRunning = cal.abort();
+  check('abort() informa de que la había', wasRunning === true);
+  check('abort() vacía la medición', !cal.running && cal.n === 0);
+
+  // load() aborta por su cuenta: es el camino real cuando se cambia de equipo.
+  cal.start(48000, 'sonda-X', 'X');
+  for (let b = 0; b < 900; b++) cal.addPoint(b * 4096, ((b * 4096) / fsReal) * 1000, 0);
+  cal.load('sonda-Y', 48000, 'Y');
+  check('cambiar de dispositivo descarta la medición', !cal.running && cal.n === 0);
+  check('y no la atribuye al nuevo', cal.source === 'none');
+}
+
 /* La duración recomendada en la interfaz sale de aquí, no de una intuición.
    La incertidumbre de una pendiente por mínimos cuadrados cae como D^1.5
    (D^0.5 por el número de puntos, D por el brazo de palanca temporal). */

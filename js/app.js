@@ -31,6 +31,7 @@ const S = {
   level: 0,
   peak: 0,
   tickTimes: [],
+  deviceLabel: '',
 };
 
 const cal = new ClockCalibration();
@@ -295,7 +296,7 @@ function paintCalBanner() {
       show('Calibración lista para aplicar',
         `${fmtClock(secs)} · ${est.ppm >= 0 ? '+' : ''}${est.ppm.toFixed(2)} ppm ` +
         `· incertidumbre ${fmtSd(est.sigmaPpm)}. ${quality}`,
-        'ready', { 'cb-start': false, 'cb-apply': true, 'cb-cancel': true, 'cb-hide': false });
+        'ready', { 'cb-adopt': false, 'cb-start': false, 'cb-apply': true, 'cb-cancel': true, 'cb-hide': false });
     } else {
       const left = Math.max(0, CAL_MIN_SECONDS - secs);
       show('Calibrando el reloj de muestreo…',
@@ -303,8 +304,21 @@ function paintCalBanner() {
           ? `${fmtClock(secs)} · ${est.ppm >= 0 ? '+' : ''}${est.ppm.toFixed(2)} ppm ` +
             `· incertidumbre ${fmtSd(est.sigmaPpm)} · ${fmtClock(left)} para poder aplicarla`
           : `${fmtClock(secs)} · reuniendo bloques. Deja la pestaña en primer plano.`,
-        'measuring', { 'cb-start': false, 'cb-apply': false, 'cb-cancel': true, 'cb-hide': false });
+        'measuring', { 'cb-adopt': false, 'cb-start': false, 'cb-apply': false, 'cb-cancel': true, 'cb-hide': false });
     }
+    return;
+  }
+
+  if (cal.candidate && !calDismissed) {
+    const c = cal.candidate.rec;
+    const when = c.storedAt ? new Date(c.storedAt).toLocaleDateString('es-ES') : 'fecha desconocida';
+    show('Hay una calibración guardada con este mismo nombre',
+      `«${c.label}» · ${((c.factor - 1) * 1e6).toFixed(2)} ppm · ${when}. ` +
+      'El identificador del dispositivo ha cambiado, cosa que pasa al borrar los datos del ' +
+      'sitio o al cambiar de puerto USB. Si es la misma sonda, aplícala; si es otra unidad ' +
+      'del mismo modelo, calibra de nuevo: comparten nombre pero no cristal.',
+      '', { 'cb-adopt': true, 'cb-start': true, 'cb-apply': false, 'cb-cancel': false, 'cb-hide': true });
+    $('cb-start').textContent = 'Calibrar de nuevo';
     return;
   }
 
@@ -313,17 +327,53 @@ function paintCalBanner() {
       'La marcha arrastra el error del cristal de la tarjeta de sonido: hasta ±8,6 s/día, ' +
       'más que toda la banda de un cronómetro. La amplitud y el error de batida no se ven afectados. ' +
       'Bastan 2 minutos; 5 lo dejan fino.',
-      '', { 'cb-start': true, 'cb-apply': false, 'cb-cancel': false, 'cb-hide': true });
+      '', { 'cb-adopt': false, 'cb-start': true, 'cb-apply': false, 'cb-cancel': false, 'cb-hide': true });
+    $('cb-start').textContent = 'Calibrar ahora';
     return;
   }
 
   el.hidden = true;
 }
 
+/** Lista de calibraciones guardadas, con la activa marcada. */
+function paintCalList() {
+  const el = $('cal-list');
+  const items = cal.list();
+  el.innerHTML = '';
+  if (!items.length) {
+    el.innerHTML = '<div class="cal-empty">Ninguna todavía.</div>';
+    return;
+  }
+  for (const it of items) {
+    const row = document.createElement('div');
+    row.className = `cal-row${it.active ? ' active' : ''}`;
+    const when = it.storedAt ? new Date(it.storedAt).toLocaleDateString('es-ES') : '—';
+    row.innerHTML =
+      `<span class="name">${escapeHtml(it.label)}</span>` +
+      `<span class="val">${it.ppm >= 0 ? '+' : ''}${it.ppm.toFixed(2)} ppm</span>` +
+      `<span class="when">${when}</span>` +
+      (it.active ? '<span class="tag">en uso</span>' : '');
+    const del = document.createElement('button');
+    del.className = 'ghost';
+    del.textContent = 'Borrar';
+    del.addEventListener('click', () => {
+      cal.remove(it.deviceId);
+      paintCalList();
+      setStatus(`Calibración de «${it.label}» borrada.`);
+    });
+    row.appendChild(del);
+    el.appendChild(row);
+  }
+}
+
+function escapeHtml(t) {
+  return String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
 /** Arranca la medición y deja el panel a la vista. */
 function startCalibration() {
   if (!S.running) { setStatus('La calibración necesita la captura en marcha.', true); return; }
-  cal.start(S.fs, $('device').value);
+  cal.start(S.fs, $('device').value, S.deviceLabel);
   $('btn-cal').textContent = 'Detener medición';
   $('cal-details').open = true;
 }
@@ -339,6 +389,7 @@ function applyCalibration() {
     `sobre ${fmtClock(est.seconds)} (${fmtSd(est.sigmaPpm)}).`;
   setStatus(`Calibración aplicada: ${est.ppm >= 0 ? '+' : ''}${est.ppm.toFixed(2)} ppm, ` +
     `corrige ${cal.errorSecondsPerDay >= 0 ? '+' : ''}${cal.errorSecondsPerDay.toFixed(2)} s/día.`);
+  paintCalList();
   P.tracker.reset();
 }
 
@@ -639,10 +690,19 @@ async function start() {
     if (!(await hasPermission())) await requestPermission();
     await refreshDevices($('device').value);
     const deviceId = $('device').value;
+
+    // Una medición en curso no sobrevive a reabrir la captura: el nuevo
+    // AudioContext reinicia el contador de frames y la regresión quedaría
+    // partida en dos tramos. Se descarta antes de tocar nada.
+    const calWasRunning = cal.abort();
+
     const info = await capture.start(deviceId, 4096);
 
-    cal.load(deviceId, info.sampleRate);
+    S.deviceLabel = info.label || '';
+    cal.load(deviceId, info.sampleRate, S.deviceLabel);
     cal.nominal = info.sampleRate;
+    $('btn-cal').textContent = 'Iniciar medición';
+    paintCalList();
     buildPipeline(info.sampleRate);
     P.detector.reset();
 
@@ -663,7 +723,10 @@ async function start() {
     const rateNote = info.sampleRate === info.requestedRate
       ? `${info.sampleRate} Hz`
       : `${info.sampleRate} Hz (se pidieron ${info.requestedRate})`;
-    if (info.state !== 'running') {
+    if (calWasRunning) {
+      setStatus('Se descartó la calibración en curso: al reabrir la entrada el contador '
+        + 'de frames vuelve a cero y la medición ya no sería válida. Vuelve a lanzarla.', true);
+    } else if (info.state !== 'running') {
       setStatus('El navegador ha dejado el audio SUSPENDIDO: el diálogo de permiso '
         + 'consumió el gesto del clic. Pulsa en cualquier parte de la página para arrancarlo.', true);
     } else {
@@ -790,6 +853,16 @@ function wire() {
     $('cal-live').textContent = 'Medición detenida.';
   });
   $('cb-hide').addEventListener('click', () => { calDismissed = true; $('cal-banner').hidden = true; });
+  $('cb-adopt').addEventListener('click', () => {
+    const label = cal.candidate ? cal.candidate.rec.label : '';
+    if (!cal.acceptCandidate()) return;
+    paintCalList();
+    P.tracker.reset();
+    setStatus(`Calibración de «${label}» reasignada a este dispositivo: ` +
+      `${cal.ppm >= 0 ? '+' : ''}${cal.ppm.toFixed(2)} ppm.`);
+  });
+
+  $('btn-cal-clear').addEventListener('click', paintCalList);
   $('btn-cal-clear').addEventListener('click', () => {
     cal.clear();
     $('cal-live').textContent = 'Corrección borrada: la marcha vuelve a depender del cristal sin corregir.';
@@ -842,6 +915,7 @@ async function init() {
     setStatus('Pulsa Iniciar para conceder permiso de micrófono.');
   }
   navigator.mediaDevices.addEventListener?.('devicechange', () => refreshDevices($('device').value));
+  paintCalList();
   redraw();
   setInterval(update, 200);
 }

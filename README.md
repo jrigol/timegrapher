@@ -63,6 +63,20 @@ el botón para hacerlo. También está en *Calibración del reloj de muestreo* �
 reloj del sistema por regresión sobre todos los bloques; luego **Aplicar y
 guardar** lo asocia al `deviceId` en `localStorage` y se reaplica solo.
 
+### Una calibración por dispositivo
+
+Cada tarjeta lleva su propio cristal: dos dongles del mismo modelo se separan
+fácilmente 200 ppm entre sí. La corrección se guarda por `deviceId`, y el panel
+lista las que hay para verlas y borrarlas.
+
+Con un matiz que conviene conocer: **`deviceId` no es un identificador
+duradero.** Es un hash con sal por origen y cambia al borrar los datos del sitio,
+al revocar el permiso, en algunos navegadores al cerrar la sesión, y a veces al
+cambiar de puerto USB. Si el id no aparece pero hay *una sola* calibración
+guardada con la misma etiqueta de dispositivo, la aplicación la propone — no la
+aplica sola, porque dos unidades del mismo modelo comparten nombre y no comparten
+cristal. Si hay dos con ese nombre, no propone ninguna.
+
 ### ¿Cuánto hay que dejarlo?
 
 Menos de lo que parece. La incertidumbre de la pendiente cae como `D^1.5` —`D^0.5`
