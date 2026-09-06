@@ -2,26 +2,27 @@
    se lee mucho mejor sobre fondo oscuro y es lo que hacen los aparatos de mesa. */
 :root {
   color-scheme: dark;
-  /* Paleta: fcde9c · ffa552 · ba5624 · 381d2a · c4d6b0.
-     El reparto está razonado y medido en js/ui/theme.js: crema y salvia son
-     tinta (pálidas y de croma bajo, no sirven como marcas), la cinta usa el
-     par mejor separado -crema contra óxido-, y el naranja se reserva para lo
-     interactivo. Los tonos de superficie salen del mismo tono berenjena. */
-  --surface: #381d2a;
-  --plane: #250c19;
-  --raised: #452534;
-  --ink: #fcde9c;
-  --ink2: #c4d6b0;
-  --muted: #9c8d94;
-  --grid: #4a2c3a;
-  --axis: #5b3d4b;
-  --border: rgba(252, 222, 156, 0.14);
-  --s1: #fcde9c;
-  --s2: #ba5624;
-  --s3: #c4d6b0;
-  --accent: #ffa552;
-  --accent-hi: #ffb974;
-  --on-accent: #381d2a;
+  /* Paleta: 4e598c · ffffff · f9c784 · fcaf58 · ff8c42.
+     El razonamiento y las medidas están en js/ui/theme.js: los tres naranjas
+     son una rampa y no tres categorías, el blanco no puede ser superficie
+     (los naranjas caerían a 1,5-2,3:1), y las superficies se derivan del tono
+     índigo para que todo entre en rango. El #4e598c original queda de eje y
+     borde, donde 2,2:1 es exactamente lo que se busca. */
+  --surface: #1d2351;
+  --plane: #0c0e3b;
+  --raised: #303967;
+  --ink: #ffffff;
+  --ink2: #c7d0ef;
+  --muted: #969db8;
+  --grid: #2c345e;
+  --axis: #4e598c;
+  --border: rgba(255, 255, 255, 0.13);
+  --s1: #ff8c42;
+  --s2: #7d8dd6;
+  --s3: #f9c784;
+  --accent: #fcaf58;
+  --accent-hi: #ffc37e;
+  --on-accent: #0c0e3b;
   --good: #0ca30c;
   --warning: #fab219;
   --serious: #ec835a;
@@ -79,12 +80,12 @@ button, select, input[type="number"] {
   padding: 6px 10px;
 }
 button { cursor: pointer; }
-button:hover:not(:disabled) { background: #53303f; }
+button:hover:not(:disabled) { background: #3b4578; }
 button:disabled { opacity: .45; cursor: default; }
 button.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; }
 button.primary:hover { background: var(--accent-hi); }
-button.primary.on { background: var(--s2); color: var(--ink); }
-button.primary.on:hover { background: #cf6633; }
+button.primary.on { background: var(--critical); color: var(--ink); }
+button.primary.on:hover { background: #dd5b5b; }
 button.ghost { font-size: 13px; padding: 5px 9px; }
 input[type="range"] { accent-color: var(--accent); width: 100%; }
 input[type="checkbox"] { accent-color: var(--accent); }
@@ -176,8 +177,8 @@ main { padding: 16px 20px 48px; max-width: 1480px; margin: 0 auto; }
   font-variant-numeric: tabular-nums; margin-top: 2px;
 }
 .pos-cell .ps { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.pos-cell.filled { border-style: solid; border-color: var(--border); background: #40222f; }
-.pos-cell.busy { border-style: solid; border-color: var(--accent); background: #4a2a1c; }
+.pos-cell.filled { border-style: solid; border-color: var(--border); background: #262d59; }
+.pos-cell.busy { border-style: solid; border-color: var(--accent); background: #3a3560; }
 .pos-cell.extreme-hi { border-left: 3px solid var(--serious); }
 .pos-cell.extreme-lo { border-left: 3px solid var(--s3); }
 .pos-bar { height: 3px; background: var(--grid); border-radius: 2px; overflow: hidden; margin-top: 4px; }

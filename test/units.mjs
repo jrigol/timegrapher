@@ -313,7 +313,7 @@ console.log('\nPaleta del tema');
     return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]) * 100;
   };
 
-  const PALETTE = ['#fcde9c', '#ffa552', '#ba5624', '#381d2a', '#c4d6b0'];
+  const PALETTE = ['#4e598c', '#ffffff', '#f9c784', '#fcaf58', '#ff8c42'];
   const used = new Set(Object.values(T).map((v) => String(v).toLowerCase()));
   const absent = PALETTE.filter((c) => !used.has(c));
   check('los cinco colores dados están en el tema', absent.length === 0, absent.join(', '));
@@ -323,6 +323,8 @@ console.log('\nPaleta del tema');
     const c = contrast(hex, T.surface);
     check(`${name} legible como texto`, c >= 4.5, `${c.toFixed(2)}:1`);
   }
+  // El índigo dado (#4e598c) es EJE, no marca: 2,2:1 es lo que se busca ahí, y
+  // por eso no entra en esta lista.
   for (const [name, hex] of [['s1', T.s1], ['s2', T.s2], ['s3', T.s3], ['accent', T.accent],
                              ['good', T.good], ['warning', T.warning],
                              ['serious', T.serious], ['critical', T.critical]]) {
@@ -338,8 +340,8 @@ console.log('\nPaleta del tema');
   // El óxido da 3,2:1: vale como marca y no como texto. Que nadie lo use para
   // pintar letras.
   const css = fs.readFileSync(new URL('../css/style.css', import.meta.url), 'utf8');
-  check('el óxido no se usa nunca como color de texto',
-    !/color:\s*var\(--s2\)/.test(css));
+  check('el eje no se usa nunca como color de texto',
+    !/color:\s*var\(--axis\)/.test(css));
   check('la superficie se distingue del plano', contrast(T.surface, T.plane) > 1.1,
     `${contrast(T.surface, T.plane).toFixed(2)}:1`);
 }

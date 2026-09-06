@@ -1,39 +1,43 @@
 /**
- * Paleta del panel: fcde9c · ffa552 · ba5624 · 381d2a · c4d6b0.
+ * Paleta del panel: 4e598c · ffffff · f9c784 · fcaf58 · ff8c42.
  *
- * El reparto de papeles no es estético, sale de medir. Los cinco colores se
- * validaron contra la superficie #381d2a con el comprobador de la paleta:
+ * Tomada al pie de la letra esta paleta no funciona, y conviene saber por qué:
  *
- *  - Crema (L 0,91) y salvia (L 0,85) son PÁLIDOS y de croma bajo: como marcas
- *    de datos no se distinguen entre sí (ΔE 8,4 con visión normal, por debajo
- *    del suelo de 15). No son colores de serie, son colores de TINTA, y ahí
- *    rinden de sobra: 11,7:1 y 9,9:1 de contraste.
- *  - La cinta es la única gráfica con dos series juntas, así que se lleva el
- *    par mejor separado: crema contra óxido, ΔE 35,4 con visión normal y 33,5
- *    bajo deuteranopia. Los pares que parecían obvios a ojo -naranja contra
- *    salvia- son justo los que fallan (ΔE 14,4, por debajo del suelo).
- *  - El naranja queda para lo interactivo: botones, progreso, medida en curso.
- *  - El óxido da 3,23:1. Sirve como marca, NUNCA para texto.
+ *  - Los tres naranjas son UNA rampa, no tres colores. Entre sí dan ΔE 6,0,
+ *    7,7 y 13,3 (OKLab ×100), los tres por debajo del suelo de 15. Sirven como
+ *    pasos de intensidad, nunca como categorías que haya que distinguir.
+ *  - El blanco no puede ser la superficie: sobre blanco los naranjas caen a
+ *    1,55–2,31:1, invisibles como marcas. Un tema claro con esta paleta no
+ *    puede mostrar datos.
+ *  - El índigo tal cual tampoco: con él de fondo, #ff8c42 da 2,90:1, por
+ *    debajo del mínimo de 3:1.
+ *
+ * Lo que sí funciona es derivar las superficies del TONO índigo. Con la tarjeta
+ * en #1d2351 todo entra en rango, y el #4e598c original encuentra su papel
+ * natural en ejes y bordes, donde 2,2:1 es justo lo que se quiere: recesivo.
+ *
+ * La cinta -única gráfica con dos series superpuestas- usa el par mejor
+ * separado: naranja fuego contra un periwinkle del tono índigo, ΔE 27,2 con
+ * visión normal y 22,5 en protanopia. Son tonos casi opuestos, y ambos salen de
+ * las dos familias de la paleta.
  *
  * Los colores de estado no se tematizan a propósito: bueno/malo tiene que ser
- * inequívoco y no debe confundirse con la identidad decorativa de una serie.
- * Los cuatro pasan el contraste sobre la superficie nueva, y en la interfaz
- * siempre van con etiqueta, nunca solo con el color.
+ * inequívoco y no confundirse con la identidad decorativa de una serie.
  */
 export const T = {
-  surface: '#381d2a',   // berenjena de la paleta
-  plane: '#250c19',     // paso más oscuro del mismo tono
-  ink: '#fcde9c',       // crema
-  ink2: '#c4d6b0',      // salvia
-  muted: '#9c8d94',     // berenjena desaturada, 4,8:1
-  grid: '#4a2c3a',
-  axis: '#5b3d4b',
-  border: 'rgba(252, 222, 156, 0.14)',
+  surface: '#1d2351',   // paso oscuro del tono índigo
+  plane: '#0c0e3b',
+  ink: '#ffffff',       // blanco de la paleta, 14,9:1
+  ink2: '#c7d0ef',
+  muted: '#969db8',
+  grid: '#2c345e',
+  axis: '#4e598c',      // el índigo dado: recesivo a propósito
+  border: 'rgba(255, 255, 255, 0.13)',
 
-  s1: '#fcde9c', // crema   - traza del tic y marcha
-  s2: '#ba5624', // óxido   - traza del tac y error de batida
-  s3: '#c4d6b0', // salvia  - amplitud
-  accent: '#ffa552', // naranja - botones, progreso, medida en curso
+  s1: '#ff8c42', // fuego      - traza del tic y marcha
+  s2: '#7d8dd6', // periwinkle - traza del tac y error de batida
+  s3: '#f9c784', // albaricoque- amplitud
+  accent: '#fcaf58', // naranja - botones, progreso, medida en curso
 
   good: '#0ca30c',
   warning: '#fab219',
