@@ -1,0 +1,169 @@
+/**
+ * Comprobaciones que no necesitan navegador:
+ *   - la aritmética de la calibración recupera un ppm conocido
+ *   - las rutas de dibujado de la cinta y de los gráficos se ejecutan enteras
+ *     (con y sin datos, con y sin cursor) sobre un contexto 2D simulado
+ *
+ *   node test/units.mjs
+ */
+let failures = 0;
+function check(name, ok, detail = '') {
+  if (!ok) failures++;
+  console.log(`  ${ok ? 'ok  ' : 'FALLO'}  ${name}${detail ? '  ' + detail : ''}`);
+}
+
+/* ------------------------------------------------- stubs de navegador --- */
+
+const store = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (store.has(k) ? store.get(k) : null),
+  setItem: (k, v) => store.set(k, String(v)),
+  removeItem: (k) => store.delete(k),
+};
+
+const CTX_METHODS = [
+  'setTransform', 'fillRect', 'strokeRect', 'clearRect', 'beginPath', 'moveTo',
+  'lineTo', 'stroke', 'fill', 'arc', 'closePath', 'setLineDash', 'save', 'restore',
+];
+function makeCanvas(w = 460, h = 300) {
+  const calls = { count: 0 };
+  const ctx = { measureText: (t) => { calls.count++; return { width: t.length * 6 }; } };
+  for (const m of CTX_METHODS) ctx[m] = () => { calls.count++; };
+  ctx.fillText = () => { calls.count++; };
+  return {
+    calls,
+    width: 0, height: 0,
+    getBoundingClientRect: () => ({ width: w, height: h, left: 0, top: 0 }),
+    getContext: () => ctx,
+    addEventListener: () => {},
+  };
+}
+globalThis.window = { devicePixelRatio: 2, addEventListener: () => {} };
+
+/* ------------------------------------------------------- calibración --- */
+
+const { ClockCalibration } = await import('../js/calibration.js');
+
+console.log('\nCalibración del reloj de muestreo');
+{
+  const cal = new ClockCalibration();
+  const NOMINAL = 48000;
+  const TRUE_PPM = 104.3;                     // cristal que va rápido
+  const fsReal = NOMINAL * (1 + TRUE_PPM / 1e6);
+  cal.start(NOMINAL, 'dispositivo-de-prueba');
+
+  // 30 min de bloques de 4096 muestras, con jitter de entrega de +-3 ms
+  // (asimétrico, como en la realidad: los mensajes llegan tarde, nunca pronto).
+  let seed = 7;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const blocks = Math.floor((1800 * fsReal) / 4096);
+  for (let b = 0; b < blocks; b++) {
+    const frame = b * 4096;
+    const trueMs = (frame / fsReal) * 1000;
+    cal.addPoint(frame, trueMs + rnd() * 6, 0);
+  }
+  const est = cal.estimate();
+  check('estimación disponible', !!est);
+  if (est) {
+    check('ppm recuperado', Math.abs(est.ppm - TRUE_PPM) < 0.5,
+      `${est.ppm.toFixed(3)} ppm (real ${TRUE_PPM})`);
+    check('sigma plausible', est.sigmaPpm > 0 && est.sigmaPpm < 0.5,
+      `±${est.sigmaPpm.toFixed(4)} ppm`);
+    check('base temporal', Math.abs(est.seconds - 1800) < 5, `${est.seconds.toFixed(1)} s`);
+  }
+
+  cal.commit();
+  check('factor aplicado', Math.abs(cal.ppm - TRUE_PPM) < 0.5);
+  check('sesgo en s/día', Math.abs(cal.errorSecondsPerDay - TRUE_PPM * 86400 / 1e6) < 0.05,
+    `${cal.errorSecondsPerDay.toFixed(2)} s/día`);
+
+  // timeOf tiene que deshacer el error del cristal: 1 h de frames -> 1 h real.
+  const oneHour = Math.round(fsReal * 3600);
+  check('timeOf corrige la deriva', Math.abs(cal.timeOf(oneHour) - 3600) < 0.01,
+    `${cal.timeOf(oneHour).toFixed(3)} s`);
+
+  const cal2 = new ClockCalibration();
+  check('se recupera de localStorage', cal2.load('dispositivo-de-prueba', 48000) &&
+    Math.abs(cal2.ppm - TRUE_PPM) < 0.5);
+  cal2.clear();
+  check('borrado deja el factor a 1', cal2.factor === 1 && cal2.source === 'none');
+}
+
+/* ------------------------------------------------------ dibujado ------- */
+
+const { PaperTape } = await import('../js/ui/paper.js');
+const { TimeSeries } = await import('../js/ui/charts.js');
+const { T } = await import('../js/ui/theme.js');
+
+console.log('\nRutas de dibujado');
+{
+  const c = makeCanvas(460, 560);
+  const tape = new PaperTape(c);
+  let threw = null;
+  try { tape.draw(); } catch (e) { threw = e; }
+  check('cinta sin datos', !threw, threw ? threw.message : '');
+
+  const pts = [];
+  for (let i = 0; i < 400; i++) {
+    // Fase que deriva y se sale del rango: ejercita el envolvente.
+    pts.push({ t: i * 0.125, i, phase: i * 0.12 + (i % 2 ? 0.25 : -0.25) });
+  }
+  tape.setPoints(pts);
+  threw = null;
+  try { tape.draw(); } catch (e) { threw = e; }
+  check('cinta con 400 tics', !threw, threw ? threw.message : '');
+  check('cinta dibuja algo', c.calls.count > 100, `${c.calls.count} llamadas al contexto`);
+
+  tape.cursor = { x: 200, y: 100 };
+  threw = null;
+  try { tape.draw(); } catch (e) { threw = e; }
+  check('cinta con cursor', !threw, threw ? threw.message : '');
+
+  for (const range of [2.5, 5, 10]) {
+    tape.halfRange = range;
+    try { tape.draw(); } catch (e) { check(`cinta rango ±${range}`, false, e.message); }
+  }
+  check('cinta en los tres rangos', true);
+}
+
+{
+  const c = makeCanvas(700, 148);
+  const ch = new TimeSeries(c, { title: 'Marcha', unit: 's/día', color: T.s1, decimals: 1, symmetric: true });
+  let threw = null;
+  try { ch.draw(); } catch (e) { threw = e; }
+  check('gráfico vacío', !threw, threw ? threw.message : '');
+
+  for (let i = 0; i < 600; i++) ch.push(i, 8 + 3 * Math.sin(i / 25));
+  threw = null;
+  try { ch.draw(); } catch (e) { threw = e; }
+  check('gráfico con 600 puntos', !threw, threw ? threw.message : '');
+
+  ch.cursor = { x: 400, y: 60 };
+  threw = null;
+  try { ch.draw(); } catch (e) { threw = e; }
+  check('gráfico con cursor', !threw, threw ? threw.message : '');
+
+  const banded = new TimeSeries(makeCanvas(700, 148),
+    { title: 'Amplitud', unit: '°', color: T.s3, decimals: 0, band: { lo: 270, hi: 315 } });
+  for (let i = 0; i < 200; i++) banded.push(i, 285 + 5 * Math.cos(i / 12));
+  threw = null;
+  try { banded.draw(); } catch (e) { threw = e; }
+  check('gráfico con zona de referencia', !threw, threw ? threw.message : '');
+
+  // Serie constante: rango cero, el caso que rompe los autoescalados ingenuos.
+  const flat = new TimeSeries(makeCanvas(700, 148), { title: 'Batida', unit: 'ms', color: T.s2, decimals: 2 });
+  for (let i = 0; i < 50; i++) flat.push(i, 0.25);
+  threw = null;
+  try { flat.draw(); } catch (e) { threw = e; }
+  check('gráfico con serie constante', !threw, threw ? threw.message : '');
+
+  // Un solo punto.
+  const one = new TimeSeries(makeCanvas(700, 148), { title: 'X', unit: '', color: T.s1 });
+  one.push(0, 5);
+  threw = null;
+  try { one.draw(); } catch (e) { threw = e; }
+  check('gráfico con un solo punto', !threw, threw ? threw.message : '');
+}
+
+console.log(`\n${failures === 0 ? 'Todas las comprobaciones pasan.' : `${failures} comprobaciones fallan.`}`);
+process.exit(failures ? 1 : 0);

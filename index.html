@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timegrapher</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="bar">
+  <h1>Timegrapher</h1>
+  <div class="bar-controls">
+    <select id="device" aria-label="Dispositivo de entrada"></select>
+    <button id="toggle" class="primary">Iniciar</button>
+  </div>
+  <div id="status" class="status" role="status">Concede permiso de micrófono para listar los dispositivos.</div>
+</header>
+
+<main>
+  <section class="tiles" aria-label="Lecturas">
+    <div class="tile">
+      <div class="tile-label">Marcha</div>
+      <div class="tile-value" id="v-rate">—</div>
+      <div class="tile-unit">s/día</div>
+      <div class="chip" id="c-rate"><span class="dot"></span><span class="chip-text">sin señal</span></div>
+      <div class="tile-note" id="n-rate"></div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Amplitud</div>
+      <div class="tile-value" id="v-amp">—</div>
+      <div class="tile-unit">grados</div>
+      <div class="chip" id="c-amp"><span class="dot"></span><span class="chip-text">sin señal</span></div>
+      <div class="tile-note" id="n-amp"></div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Error de batida</div>
+      <div class="tile-value" id="v-beat">—</div>
+      <div class="tile-unit">ms</div>
+      <div class="chip" id="c-beat"><span class="dot"></span><span class="chip-text">sin señal</span></div>
+      <div class="tile-note" id="n-beat"></div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Alternancias</div>
+      <div class="tile-value" id="v-bph">—</div>
+      <div class="tile-unit">bph</div>
+      <div class="chip" id="c-bph"><span class="dot"></span><span class="chip-text">buscando</span></div>
+      <div class="tile-note" id="n-bph"></div>
+    </div>
+  </section>
+
+  <section class="panels">
+    <div class="card tape-card">
+      <div class="card-head">
+        <h2>Cinta</h2>
+        <div class="legend">
+          <span class="key"><i style="background:#3987e5"></i>tic</span>
+          <span class="key"><i style="background:#d95926"></i>tac</span>
+        </div>
+        <div class="card-tools">
+          <label>Rango
+            <select id="tape-range">
+              <option value="2.5">±2,5 ms</option>
+              <option value="5" selected>±5 ms</option>
+              <option value="10">±10 ms</option>
+            </select>
+          </label>
+          <label>Duración
+            <select id="tape-span">
+              <option value="15">15 s</option>
+              <option value="30" selected>30 s</option>
+              <option value="60">60 s</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <canvas id="tape" aria-label="Traza de la cinta de papel"></canvas>
+      <p class="hint">La inclinación de las trazas es la marcha; su separación, el error de batida. Pasa el cursor para leer la posición en ms.</p>
+    </div>
+
+    <div class="card charts-card">
+      <div class="card-head">
+        <h2>Evolución</h2>
+        <div class="card-tools">
+          <label>Ventana
+            <select id="chart-span">
+              <option value="60">1 min</option>
+              <option value="300" selected>5 min</option>
+              <option value="900">15 min</option>
+              <option value="3600">60 min</option>
+            </select>
+          </label>
+          <button id="btn-table" class="ghost" aria-expanded="false">Ver datos</button>
+        </div>
+      </div>
+      <canvas id="ch-rate" class="chart"></canvas>
+      <canvas id="ch-amp" class="chart"></canvas>
+      <canvas id="ch-beat" class="chart"></canvas>
+      <div id="table-wrap" class="table-wrap" hidden>
+        <table id="table">
+          <caption>Últimas lecturas registradas</caption>
+          <thead><tr><th>Hora</th><th>Marcha (s/día)</th><th>Amplitud (°)</th><th>Batida (ms)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="settings">
+    <details open>
+      <summary>Medida</summary>
+      <div class="grid">
+        <label class="field">
+          <span>Alternancias por hora</span>
+          <div class="row">
+            <label class="inline"><input type="checkbox" id="bph-auto" checked> auto</label>
+            <select id="bph-manual"></select>
+          </div>
+        </label>
+        <label class="field">
+          <span>Ángulo de alzada</span>
+          <div class="row">
+            <input type="number" id="lift" value="52" min="20" max="80" step="0.5">
+            <select id="lift-preset">
+              <option value="">calibre…</option>
+            </select>
+          </div>
+          <small>Dato del calibre, no medible desde el audio. Verifícalo en su ficha técnica.</small>
+        </label>
+        <label class="field">
+          <span>Ventana de ajuste</span>
+          <select id="fit-window">
+            <option value="10">10 s</option>
+            <option value="20" selected>20 s</option>
+            <option value="30">30 s</option>
+            <option value="60">60 s</option>
+          </select>
+          <small>Más larga: más precisión, menos reactividad.</small>
+        </label>
+      </div>
+    </details>
+
+    <details>
+      <summary>Sonda y detección</summary>
+      <div class="grid">
+        <label class="field">
+          <span>Banda del filtro (Hz)</span>
+          <div class="row">
+            <input type="number" id="band-lo" value="1000" min="100" max="10000" step="100">
+            <span class="sep">–</span>
+            <input type="number" id="band-hi" value="8000" min="1000" max="22000" step="500">
+            <button id="btn-autotune" class="ghost">Ajustar</button>
+          </div>
+          <small>«Ajustar» escucha unos segundos y elige la banda con mejor relación tic/ruido.</small>
+        </label>
+        <label class="field">
+          <span>Sensibilidad del detector</span>
+          <input type="range" id="sens" min="3" max="40" step="1" value="12">
+          <small id="sens-note">umbral = 12× el suelo de ruido</small>
+        </label>
+        <label class="field">
+          <span>Calidad de señal</span>
+          <div class="meter"><div id="quality-bar"></div></div>
+          <small id="quality-note">Sin señal.</small>
+        </label>
+        <label class="field">
+          <span>Umbral de los ruidos del escape</span>
+          <input type="range" id="amp-thr" min="3" max="25" step="1" value="8">
+          <small id="amp-thr-note">8% del pico del tic. Bájalo si la amplitud no se resuelve; súbelo si la reverberación de la caja la falsea.</small>
+        </label>
+        <label class="field">
+          <span>Refinado por plantilla</span>
+          <label class="inline"><input type="checkbox" id="align" checked> activo</label>
+          <small>Correla cada tic contra la forma media en vez de usar solo el pico: reduce el ruido de la marcha.</small>
+        </label>
+      </div>
+    </details>
+
+    <details>
+      <summary>Calibración del reloj de muestreo</summary>
+      <div class="cal">
+        <p class="cal-why">
+          Todo se mide contra el cristal de la tarjeta de sonido. Uno barato se va
+          <strong>±50–100 ppm</strong>, y 100 ppm son <strong>8,6 s/día</strong> de error
+          puro de medida — más que toda la banda de un cronómetro COSC. Esta corrección
+          afecta <em>solo a la marcha</em>: el error de batida es una diferencia y la
+          amplitud depende de dt/T, donde el factor se cancela.
+        </p>
+        <div class="cal-state">
+          <div><span class="k">Corrección activa</span><span class="v" id="cal-active">ninguna</span></div>
+          <div><span class="k">Origen</span><span class="v" id="cal-source">—</span></div>
+          <div><span class="k">Sesgo que corrige</span><span class="v" id="cal-bias">—</span></div>
+        </div>
+        <div class="cal-run">
+          <button id="btn-cal" class="ghost">Iniciar medición</button>
+          <button id="btn-cal-apply" class="ghost" disabled>Aplicar y guardar</button>
+          <button id="btn-cal-clear" class="ghost">Borrar</button>
+        </div>
+        <div class="cal-live" id="cal-live">Requiere la captura en marcha. Deja la pestaña en primer plano; 20–30 min dan una corrección por debajo de 1 ppm.</div>
+      </div>
+    </details>
+  </section>
+</main>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
