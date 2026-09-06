@@ -1,4 +1,8 @@
+***Español** · [English](README.en.md)*
+
 # Timegrapher web
+
+![](assets/social-preview.png)
 
 Cronocomparador para relojes mecánicos que corre entero en el navegador. Mide
 **marcha** (s/día), **amplitud** (grados) y **error de batida** (ms), detecta las
