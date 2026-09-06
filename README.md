@@ -22,12 +22,21 @@ correlando cada tic contra una plantilla.
 
 ## Arrancar
 
+**En línea:** <https://jrigol.github.io/timegrapher/>
+
+Cada push a `main` pasa las pruebas y, solo si pasan, se republica
+(`.github/workflows/pages.yml`). El audio no sale del equipo: la página se
+descarga una vez y todo el proceso de señal ocurre en el navegador.
+
+**En local:**
+
 ```sh
 python3 -m http.server 8000
 ```
 
 y abrir <http://localhost:8000>. Tiene que ser por HTTP: sobre `file://` no
-funcionan ni los módulos ES ni el micrófono.
+funcionan ni los módulos ES ni el micrófono. Un origen seguro (HTTPS o
+`localhost`) es obligatorio para `getUserMedia`.
 
 Pulsa **Iniciar**, concede el permiso de micrófono y elige la entrada USB (se
 preselecciona sola si el nombre delata una tarjeta USB).
@@ -43,6 +52,10 @@ se va ±50–100 ppm:
 ```
 
 Más que toda la banda de tolerancia de un cronómetro COSC (−4/+6 s/d).
+
+La corrección se guarda en `localStorage`, que está separado **por origen**: la
+que midas en `localhost` no vale en `jrigol.github.io` ni al revés. Calibra en el
+sitio donde vayas a usarlo.
 
 Para corregirlo, en *Calibración del reloj de muestreo* → **Iniciar medición**,
 con la captura en marcha y la pestaña en primer plano, y déjalo 20–30 minutos.

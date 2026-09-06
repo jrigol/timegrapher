@@ -68,7 +68,12 @@ export class AudioCapture {
     const rate = settings.sampleRate || PREFERRED_RATE;
 
     this.ctx = new AudioContext({ sampleRate: rate, latencyHint: 'playback' });
-    await this.ctx.audioWorklet.addModule('js/worklet/capture-processor.js');
+    // Resuelta contra la URL de ESTE módulo, no contra la del documento: así
+    // funciona igual servida en la raíz que bajo un subpath (GitHub Pages sirve
+    // el proyecto en /<repo>/), y no depende de la barra final ni de un <base>.
+    await this.ctx.audioWorklet.addModule(
+      new URL('./worklet/capture-processor.js', import.meta.url)
+    );
 
     this.source = this.ctx.createMediaStreamSource(this.stream);
     this.node = new AudioWorkletNode(this.ctx, 'capture-processor', {
