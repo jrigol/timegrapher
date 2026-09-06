@@ -285,6 +285,65 @@ console.log('\nRutas de dibujado');
   check('gráfico con un solo punto', !threw, threw ? threw.message : '');
 }
 
+/* La paleta no es cuestión de gusto: cada papel se asignó midiendo, y esta
+   prueba fija ese contrato para que un retoque futuro no lo rompa en silencio. */
+console.log('\nPaleta del tema');
+{
+  const fs = await import('node:fs');
+  const { T } = await import('../js/ui/theme.js');
+
+  const srgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  const lin = (x) => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4);
+  const lum = (h) => { const c = srgb(h).map(lin); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const contrast = (a, b) => {
+    const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+    return (x + 0.05) / (y + 0.05);
+  };
+  const oklab = (h) => {
+    const [r, g, b] = srgb(h).map(lin);
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s2 = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s2,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s2,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s2];
+  };
+  const deltaE = (a, b) => {
+    const [x, y] = [oklab(a), oklab(b)];
+    return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]) * 100;
+  };
+
+  const PALETTE = ['#fcde9c', '#ffa552', '#ba5624', '#381d2a', '#c4d6b0'];
+  const used = new Set(Object.values(T).map((v) => String(v).toLowerCase()));
+  const absent = PALETTE.filter((c) => !used.has(c));
+  check('los cinco colores dados están en el tema', absent.length === 0, absent.join(', '));
+
+  // Texto: 4,5:1. Marcas de datos: 3:1.
+  for (const [name, hex] of [['ink', T.ink], ['ink2', T.ink2], ['muted', T.muted]]) {
+    const c = contrast(hex, T.surface);
+    check(`${name} legible como texto`, c >= 4.5, `${c.toFixed(2)}:1`);
+  }
+  for (const [name, hex] of [['s1', T.s1], ['s2', T.s2], ['s3', T.s3], ['accent', T.accent],
+                             ['good', T.good], ['warning', T.warning],
+                             ['serious', T.serious], ['critical', T.critical]]) {
+    const c = contrast(hex, T.surface);
+    check(`${name} visible como marca`, c >= 3, `${c.toFixed(2)}:1`);
+  }
+
+  // La cinta es la única gráfica con dos series superpuestas: su par tiene que
+  // estar muy por encima del suelo de 15, no rozarlo.
+  const tape = deltaE(T.s1, T.s2);
+  check('el par de la cinta separa de sobra', tape >= 25, `ΔE ${tape.toFixed(1)}`);
+
+  // El óxido da 3,2:1: vale como marca y no como texto. Que nadie lo use para
+  // pintar letras.
+  const css = fs.readFileSync(new URL('../css/style.css', import.meta.url), 'utf8');
+  check('el óxido no se usa nunca como color de texto',
+    !/color:\s*var\(--s2\)/.test(css));
+  check('la superficie se distingue del plano', contrast(T.surface, T.plane) > 1.1,
+    `${contrast(T.surface, T.plane).toFixed(2)}:1`);
+}
+
 /* Interfaz bilingüe. Lo que se comprueba no es la traducción -eso es criterio-
    sino que no haya huecos: una clave sin traducir se ve en pantalla. */
 console.log('\nIdioma');

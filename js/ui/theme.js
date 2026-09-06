@@ -1,22 +1,39 @@
 /**
- * Paleta del panel. Instrumento de banco: se compromete deliberadamente con el
- * modo oscuro, que es donde la traza de la cinta se lee mejor y lo que hacen los
- * timegrapher de mesa. Todos los valores son pasos validados contra la
- * superficie #1a1a19 (banda de luminosidad, croma, separación CVD y contraste).
+ * Paleta del panel: fcde9c · ffa552 · ba5624 · 381d2a · c4d6b0.
+ *
+ * El reparto de papeles no es estético, sale de medir. Los cinco colores se
+ * validaron contra la superficie #381d2a con el comprobador de la paleta:
+ *
+ *  - Crema (L 0,91) y salvia (L 0,85) son PÁLIDOS y de croma bajo: como marcas
+ *    de datos no se distinguen entre sí (ΔE 8,4 con visión normal, por debajo
+ *    del suelo de 15). No son colores de serie, son colores de TINTA, y ahí
+ *    rinden de sobra: 11,7:1 y 9,9:1 de contraste.
+ *  - La cinta es la única gráfica con dos series juntas, así que se lleva el
+ *    par mejor separado: crema contra óxido, ΔE 35,4 con visión normal y 33,5
+ *    bajo deuteranopia. Los pares que parecían obvios a ojo -naranja contra
+ *    salvia- son justo los que fallan (ΔE 14,4, por debajo del suelo).
+ *  - El naranja queda para lo interactivo: botones, progreso, medida en curso.
+ *  - El óxido da 3,23:1. Sirve como marca, NUNCA para texto.
+ *
+ * Los colores de estado no se tematizan a propósito: bueno/malo tiene que ser
+ * inequívoco y no debe confundirse con la identidad decorativa de una serie.
+ * Los cuatro pasan el contraste sobre la superficie nueva, y en la interfaz
+ * siempre van con etiqueta, nunca solo con el color.
  */
 export const T = {
-  surface: '#1a1a19',
-  plane: '#0d0d0d',
-  ink: '#ffffff',
-  ink2: '#c3c2b7',
-  muted: '#898781',
-  grid: '#2c2c2a',
-  axis: '#383835',
-  border: 'rgba(255,255,255,0.10)',
+  surface: '#381d2a',   // berenjena de la paleta
+  plane: '#250c19',     // paso más oscuro del mismo tono
+  ink: '#fcde9c',       // crema
+  ink2: '#c4d6b0',      // salvia
+  muted: '#9c8d94',     // berenjena desaturada, 4,8:1
+  grid: '#4a2c3a',
+  axis: '#5b3d4b',
+  border: 'rgba(252, 222, 156, 0.14)',
 
-  s1: '#3987e5', // azul   - marcha / traza del tic
-  s2: '#d95926', // naranja- error de batida / traza del tac
-  s3: '#199e70', // aqua   - amplitud
+  s1: '#fcde9c', // crema   - traza del tic y marcha
+  s2: '#ba5624', // óxido   - traza del tac y error de batida
+  s3: '#c4d6b0', // salvia  - amplitud
+  accent: '#ffa552', // naranja - botones, progreso, medida en curso
 
   good: '#0ca30c',
   warning: '#fab219',
