@@ -19,6 +19,19 @@
 </header>
 
 <main>
+  <div id="cal-banner" class="banner" role="status" hidden>
+    <div class="banner-body">
+      <strong id="cb-title"></strong>
+      <span id="cb-text"></span>
+    </div>
+    <div class="banner-actions">
+      <button id="cb-start" class="primary">Calibrar ahora</button>
+      <button id="cb-apply" class="primary" hidden>Aplicar y guardar</button>
+      <button id="cb-cancel" class="ghost" hidden>Cancelar</button>
+      <button id="cb-hide" class="ghost">Ahora no</button>
+    </div>
+  </div>
+
   <section class="tiles" aria-label="Lecturas">
     <div class="tile">
       <div class="tile-label">Marcha</div>
@@ -177,7 +190,7 @@
       </div>
     </details>
 
-    <details>
+    <details id="cal-details">
       <summary>Calibración del reloj de muestreo</summary>
       <div class="cal">
         <p class="cal-why">
@@ -197,7 +210,7 @@
           <button id="btn-cal-apply" class="ghost" disabled>Aplicar y guardar</button>
           <button id="btn-cal-clear" class="ghost">Borrar</button>
         </div>
-        <div class="cal-live" id="cal-live">Requiere la captura en marcha. Deja la pestaña en primer plano; 20–30 min dan una corrección por debajo de 1 ppm.</div>
+        <div class="cal-live" id="cal-live">Requiere la captura en marcha, con la pestaña en primer plano. La incertidumbre cae como D<sup>1,5</sup>: 2 min dan ±0,12 s/día y 5 min ±0,03 s/día, de sobra para lo que resuelve el aparato.</div>
       </div>
     </details>
   </section>

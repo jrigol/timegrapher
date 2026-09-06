@@ -57,16 +57,35 @@ La corrección se guarda en `localStorage`, que está separado **por origen**: l
 que midas en `localhost` no vale en `jrigol.github.io` ni al revés. Calibra en el
 sitio donde vayas a usarlo.
 
-Para corregirlo, en *Calibración del reloj de muestreo* → **Iniciar medición**,
-con la captura en marcha y la pestaña en primer plano, y déjalo 20–30 minutos.
-Compara el contador de frames del `AudioWorklet` con el reloj del sistema por
-regresión sobre todos los bloques. Luego **Aplicar y guardar**: queda asociado al
-`deviceId` en `localStorage` y se reaplica solo.
+Si el dispositivo no está calibrado, la aplicación lo avisa al arrancar y ofrece
+el botón para hacerlo. También está en *Calibración del reloj de muestreo* →
+**Iniciar medición**. Compara el contador de frames del `AudioWorklet` con el
+reloj del sistema por regresión sobre todos los bloques; luego **Aplicar y
+guardar** lo asocia al `deviceId` en `localStorage` y se reaplica solo.
 
-En la prueba sintética, media hora de base con ±3 ms de jitter de entrega da
-±0,02 ppm. En vivo será peor —la entrega de mensajes se agrupa si la pestaña
-pierde el foco—, pero el orden de magnitud es ese: décimas de ppm, o centésimas
-de segundo al día. El panel muestra la incertidumbre real del ajuste.
+### ¿Cuánto hay que dejarlo?
+
+Menos de lo que parece. La incertidumbre de la pendiente cae como `D^1.5` —`D^0.5`
+por el número de puntos y otro `D` por el brazo de palanca temporal—, así que en
+la práctica sale `σ[ppm] ≈ 1750 / D^1.5`:
+
+| Duración | σ | En s/día |
+|---|---|---|
+| 1 min | ±3,8 ppm | ±0,33 |
+| **2 min** | ±1,3 ppm | ±0,12 |
+| **5 min** | ±0,34 ppm | ±0,029 |
+| 10 min | ±0,12 ppm | ±0,010 |
+| 30 min | ±0,023 ppm | ±0,002 |
+
+**Cinco minutos sobran** para lo que resuelve el aparato. La interfaz habilita
+*Aplicar* a los 2 minutos y considera 5 de sobra; las dos constantes están
+respaldadas por `test/units.mjs`.
+
+Dos avisos. Esas cifras salen de un modelo de jitter limpio y no correlacionado;
+en vivo la entrega de mensajes va a rachas (recolección de basura, carga del
+sistema, pestaña en segundo plano) y eso no se promedia como ruido blanco, así
+que por debajo de 2 minutos no conviene fiarse. Y el panel muestra siempre la σ
+calculada sobre los residuos reales, que es la cifra honesta.
 
 El cristal se mueve con la temperatura unos pocos ppm, así que conviene rehacer la
 calibración de vez en cuando; no prometas precisión absoluta mejor de 1–2 s/día.

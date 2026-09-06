@@ -76,6 +76,25 @@ input[type="checkbox"] { accent-color: var(--s1); }
 main { padding: 16px 20px 48px; max-width: 1480px; margin: 0 auto; }
 
 /* --- Lecturas -------------------------------------------------------- */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+.banner.measuring { border-left-color: var(--s1); }
+.banner.ready { border-left-color: var(--good); }
+.banner-body { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 3px; }
+.banner-body strong { font-size: 13px; }
+.banner-body span { font-size: 12px; color: var(--ink2); line-height: 1.5; font-variant-numeric: tabular-nums; }
+.banner-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));

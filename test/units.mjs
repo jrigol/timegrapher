@@ -89,6 +89,44 @@ console.log('\nCalibración del reloj de muestreo');
   check('borrado deja el factor a 1', cal2.factor === 1 && cal2.source === 'none');
 }
 
+/* La duración recomendada en la interfaz sale de aquí, no de una intuición.
+   La incertidumbre de una pendiente por mínimos cuadrados cae como D^1.5
+   (D^0.5 por el número de puntos, D por el brazo de palanca temporal). */
+console.log('\nPrecisión de la calibración frente a la duración');
+{
+  const NOMINAL = 48000, TRUE_PPM = 104.3;
+  const fsReal = NOMINAL * (1 + TRUE_PPM / 1e6);
+  const measure = (seconds, seed) => {
+    const cal = new ClockCalibration();
+    cal.start(NOMINAL, 'sweep');
+    let s = seed >>> 0;
+    const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+    const blocks = Math.floor((seconds * fsReal) / 4096);
+    for (let b = 0; b < blocks; b++) {
+      const frame = b * 4096;
+      cal.addPoint(frame, (frame / fsReal) * 1000 + rnd() * 6, 0); // jitter 0-6 ms
+    }
+    return cal.estimate();
+  };
+  const avgSigma = (D) => {
+    let acc = 0;
+    for (let k = 0; k < 5; k++) acc += measure(D, 7 + k * 977).sigmaPpm;
+    return acc / 5;
+  };
+
+  const s120 = avgSigma(120), s300 = avgSigma(300), s1800 = avgSigma(1800);
+
+  // Las dos constantes que gobiernan la interfaz (CAL_MIN_SECONDS = 120,
+  // CAL_GOOD_SECONDS = 300) y lo que promete el README.
+  check('2 min ≤ ±0,15 s/día', s120 * 0.0864 < 0.15, `±${(s120 * 0.0864).toFixed(3)} s/día`);
+  check('5 min ≤ ±0,05 s/día', s300 * 0.0864 < 0.05, `±${(s300 * 0.0864).toFixed(3)} s/día`);
+
+  // sigma ~ D^-1.5: al multiplicar por 15 la duración, cae ~58x.
+  const ratio = s120 / s1800;
+  check('escala como D^-1.5', Math.abs(ratio - Math.pow(15, 1.5)) / Math.pow(15, 1.5) < 0.1,
+    `${ratio.toFixed(1)}x al pasar de 2 a 30 min (teoría ${Math.pow(15, 1.5).toFixed(1)}x)`);
+}
+
 /* ------------------------------------------------------ dibujado ------- */
 
 const { PaperTape } = await import('../js/ui/paper.js');

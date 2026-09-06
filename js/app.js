@@ -36,6 +36,21 @@ const S = {
 const cal = new ClockCalibration();
 const capture = new AudioCapture(onBlock);
 
+/**
+ * Duraciones de calibración.
+ *
+ * La incertidumbre estadística sigue sigma[ppm] ~ 1750 / D^1.5 (verificado
+ * contra el estimador en test/units.mjs): 2 min dan ±0,12 s/día y 5 min
+ * ±0,03 s/día. Pedir media hora para bajar a ±0,002 s/día no tiene sentido
+ * cuando la deriva térmica del propio cristal ya limita la exactitud absoluta
+ * a 1-2 s/día. Por debajo de 2 min sí conviene no fiarse: ahí el jitter de
+ * entrega, que es a rachas y no se promedia como ruido blanco, pesa demasiado.
+ */
+const CAL_MIN_SECONDS = 120;
+const CAL_GOOD_SECONDS = 300;
+
+let calDismissed = false;
+
 /** Todo lo que depende de la frecuencia de muestreo se construye al arrancar. */
 const P = {
   bandpass: null, envelope: null, hist: null, raw: null,
@@ -247,8 +262,84 @@ function updateInner() {
   }
 
   paintCalibration();
+  paintCalBanner();
   paintDiag();
   redraw();
+}
+
+const fmtSd = (ppm) => `±${Math.abs(ppm * 0.0864).toFixed(ppm * 0.0864 < 0.1 ? 3 : 2)} s/día`;
+
+/**
+ * Aviso de «este dispositivo no está calibrado», con la acción a mano.
+ *
+ * Sin esto, la única pista era una línea pequeña bajo la marcha, y arrancar la
+ * medición exigía saber que el panel de calibración existe y desplegarlo.
+ */
+function paintCalBanner() {
+  const el = $('cal-banner');
+  const show = (title, text, cls, buttons) => {
+    el.hidden = false;
+    el.className = `banner ${cls}`;
+    $('cb-title').textContent = title;
+    $('cb-text').textContent = text;
+    for (const [id, visible] of Object.entries(buttons)) $(id).hidden = !visible;
+  };
+
+  if (!S.running) { el.hidden = true; return; }
+
+  if (cal.running) {
+    const est = cal.estimate();
+    const secs = cal.elapsedSeconds;
+    if (est && secs >= CAL_MIN_SECONDS) {
+      const quality = secs >= CAL_GOOD_SECONDS ? 'De sobra.' : 'Ya es utilizable; a los 5 min baja a ±0,03 s/día.';
+      show('Calibración lista para aplicar',
+        `${fmtClock(secs)} · ${est.ppm >= 0 ? '+' : ''}${est.ppm.toFixed(2)} ppm ` +
+        `· incertidumbre ${fmtSd(est.sigmaPpm)}. ${quality}`,
+        'ready', { 'cb-start': false, 'cb-apply': true, 'cb-cancel': true, 'cb-hide': false });
+    } else {
+      const left = Math.max(0, CAL_MIN_SECONDS - secs);
+      show('Calibrando el reloj de muestreo…',
+        est
+          ? `${fmtClock(secs)} · ${est.ppm >= 0 ? '+' : ''}${est.ppm.toFixed(2)} ppm ` +
+            `· incertidumbre ${fmtSd(est.sigmaPpm)} · ${fmtClock(left)} para poder aplicarla`
+          : `${fmtClock(secs)} · reuniendo bloques. Deja la pestaña en primer plano.`,
+        'measuring', { 'cb-start': false, 'cb-apply': false, 'cb-cancel': true, 'cb-hide': false });
+    }
+    return;
+  }
+
+  if (cal.source === 'none' && !calDismissed) {
+    show('Este dispositivo no está calibrado',
+      'La marcha arrastra el error del cristal de la tarjeta de sonido: hasta ±8,6 s/día, ' +
+      'más que toda la banda de un cronómetro. La amplitud y el error de batida no se ven afectados. ' +
+      'Bastan 2 minutos; 5 lo dejan fino.',
+      '', { 'cb-start': true, 'cb-apply': false, 'cb-cancel': false, 'cb-hide': true });
+    return;
+  }
+
+  el.hidden = true;
+}
+
+/** Arranca la medición y deja el panel a la vista. */
+function startCalibration() {
+  if (!S.running) { setStatus('La calibración necesita la captura en marcha.', true); return; }
+  cal.start(S.fs, $('device').value);
+  $('btn-cal').textContent = 'Detener medición';
+  $('cal-details').open = true;
+}
+
+function applyCalibration() {
+  const est = cal.commit();
+  if (!est) return;
+  cal.stop();
+  $('btn-cal').textContent = 'Iniciar medición';
+  $('btn-cal-apply').disabled = true;
+  $('cal-live').textContent =
+    `Corrección aplicada y guardada para este dispositivo: ${est.ppm.toFixed(2)} ± ${est.sigmaPpm.toFixed(2)} ppm ` +
+    `sobre ${fmtClock(est.seconds)} (${fmtSd(est.sigmaPpm)}).`;
+  setStatus(`Calibración aplicada: ${est.ppm >= 0 ? '+' : ''}${est.ppm.toFixed(2)} ppm, ` +
+    `corrige ${cal.errorSecondsPerDay >= 0 ? '+' : ''}${cal.errorSecondsPerDay.toFixed(2)} s/día.`);
+  P.tracker.reset();
 }
 
 const dbfs = (v) => (v > 1e-7 ? (20 * Math.log10(v)).toFixed(0) : '-inf');
@@ -444,9 +535,10 @@ function paintCalibration() {
   }
   const sd = est.ppm * 86400 / 1e6;
   const sdSigma = est.sigmaPpm * 86400 / 1e6;
-  const ready = secs >= 120;
+  const ready = secs >= CAL_MIN_SECONDS;
   $('btn-cal-apply').disabled = !ready;
-  const conf = secs >= 1200 ? 'suficiente' : secs >= 600 ? 'aceptable, mejor llegar a 20 min' : 'corta todavía';
+  const conf = secs >= CAL_GOOD_SECONDS ? 'de sobra'
+    : secs >= CAL_MIN_SECONDS ? 'utilizable' : 'corta todavía';
   $('cal-live').textContent =
     `Midiendo… ${fmtClock(secs)} · fs = ${est.fsReal.toFixed(3)} Hz · ` +
     `${est.ppm >= 0 ? '+' : ''}${est.ppm.toFixed(2)} ± ${est.sigmaPpm.toFixed(2)} ppm ` +
@@ -561,6 +653,7 @@ async function start() {
     S.peak = 0;
     S.tickTimes = [];
     S.lastBlockMs = performance.now();
+    if (cal.source !== 'none') calDismissed = false;
     t0Wall = performance.now() / 1000;
     for (const c of charts) c.clear();
     rows.length = 0;
@@ -679,27 +772,24 @@ function wire() {
   });
 
   $('btn-cal').addEventListener('click', () => {
-    if (!S.running) { setStatus('La calibración necesita la captura en marcha.', true); return; }
     if (cal.running) {
       cal.stop();
       $('btn-cal').textContent = 'Iniciar medición';
       $('cal-live').textContent = 'Medición detenida.';
     } else {
-      cal.start(S.fs, $('device').value);
-      $('btn-cal').textContent = 'Detener medición';
+      startCalibration();
     }
   });
-  $('btn-cal-apply').addEventListener('click', () => {
-    const est = cal.commit();
-    if (!est) return;
+  $('btn-cal-apply').addEventListener('click', applyCalibration);
+
+  $('cb-start').addEventListener('click', startCalibration);
+  $('cb-apply').addEventListener('click', applyCalibration);
+  $('cb-cancel').addEventListener('click', () => {
     cal.stop();
     $('btn-cal').textContent = 'Iniciar medición';
-    $('btn-cal-apply').disabled = true;
-    $('cal-live').textContent =
-      `Corrección aplicada y guardada para este dispositivo: ${est.ppm.toFixed(2)} ± ${est.sigmaPpm.toFixed(2)} ppm ` +
-      `sobre ${fmtClock(est.seconds)}.`;
-    P.tracker.reset();
+    $('cal-live').textContent = 'Medición detenida.';
   });
+  $('cb-hide').addEventListener('click', () => { calDismissed = true; $('cal-banner').hidden = true; });
   $('btn-cal-clear').addEventListener('click', () => {
     cal.clear();
     $('cal-live').textContent = 'Corrección borrada: la marcha vuelve a depender del cristal sin corregir.';
