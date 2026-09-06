@@ -167,8 +167,4 @@ test/
   ficha del calibre.
 - Solo relojes mecánicos. Un cuarzo (un tic por segundo) queda fuera del rango de
   busca del bph.
-- **Sin probar todavía contra hardware real ni en un navegador.** La cadena de
-  medida está verificada numéricamente con señal sintética (ver *Verificación*) y
-  las rutas de dibujado con un contexto 2D simulado, pero la captura en vivo
-  —permisos, `AudioWorklet`, la sonda de verdad— está pendiente de la primera
-  sesión con un reloj puesto. Empieza por ahí.
+
