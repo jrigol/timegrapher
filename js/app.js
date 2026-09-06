@@ -1,4 +1,4 @@
-import { AudioCapture, listInputs, requestPermission, guessProbe } from './audio.js';
+import { AudioCapture, listInputs, requestPermission, hasPermission, guessProbe } from './audio.js';
 import { Bandpass, Envelope } from './dsp/filters.js';
 import { EnvHistory, TickDetector, TickAligner } from './dsp/ticks.js';
 import { BphDetector, STANDARD_BPH } from './dsp/bph.js';
@@ -24,6 +24,13 @@ const S = {
   lastGapCount: 0,
   envTau: 0.00035,
   quality: [],
+  // Contadores de diagnóstico: sin esto, «no llega audio», «llega en silencio»
+  // y «llega bien pero no hay tics» se ven exactamente igual en pantalla.
+  blocks: 0,
+  lastBlockMs: 0,
+  level: 0,
+  peak: 0,
+  tickTimes: [],
 };
 
 const cal = new ClockCalibration();
@@ -96,6 +103,17 @@ function ampMargin() {
 /* ------------------------------------------------------- cadena por bloque */
 
 function onBlock(msg, arrivalMs) {
+  try {
+    onBlockInner(msg, arrivalMs);
+  } catch (e) {
+    // Una excepción aquí mataba la cadena en silencio: el intervalo de pintado
+    // seguía corriendo y la pantalla se quedaba a «—» sin ninguna pista.
+    setStatus(`Error procesando audio: ${e.message}`, true);
+    S.running = false;
+  }
+}
+
+function onBlockInner(msg, arrivalMs) {
   if (!P.hist) return;
   cal.addPoint(msg.startFrame, arrivalMs, msg.gapCount);
 
@@ -103,6 +121,21 @@ function onBlock(msg, arrivalMs) {
   S.lastGapCount = msg.gapCount;
 
   const x = msg.samples;
+
+  // Nivel de entrada, antes de filtrar nada: es el único indicador que
+  // distingue «no llega audio» de «llega audio pero no hay tics».
+  let sum = 0, pk = 0;
+  for (let i = 0; i < x.length; i++) {
+    const v = x[i];
+    sum += v * v;
+    const a = v < 0 ? -v : v;
+    if (a > pk) pk = a;
+  }
+  S.level = Math.sqrt(sum / x.length);
+  S.peak = Math.max(S.peak * 0.9, pk);
+  S.blocks++;
+  S.lastBlockMs = performance.now();
+
   P.raw.write(msg.startFrame, x);   // crudo, antes de filtrar
 
   P.bandpass.processInPlace(x);
@@ -126,7 +159,12 @@ function onBlock(msg, arrivalMs) {
   const nd = P.decim.process(P.envOut, P.decBuf);
   if (nd) P.bphDet.push(P.decBuf.subarray(0, nd));
 
-  for (const tk of P.detector.detect(P.hist.end - ampMargin())) processTick(tk);
+  for (const tk of P.detector.detect(P.hist.end - ampMargin())) {
+    S.tickTimes.push(S.lastBlockMs);
+    processTick(tk);
+  }
+  const cutoff = S.lastBlockMs - 3000;
+  while (S.tickTimes.length && S.tickTimes[0] < cutoff) S.tickTimes.shift();
 }
 
 function processTick(tk) {
@@ -168,7 +206,11 @@ function redraw() {
 }
 
 function update() {
-  if (!S.running) return;
+  try { updateInner(); } catch (e) { setStatus(`Error al refrescar: ${e.message}`, true); }
+}
+
+function updateInner() {
+  if (!S.running) { paintDiag(); return; }
   const now = performance.now() / 1000;
 
   // --- bph automático ---
@@ -205,7 +247,62 @@ function update() {
   }
 
   paintCalibration();
+  paintDiag();
   redraw();
+}
+
+const dbfs = (v) => (v > 1e-7 ? (20 * Math.log10(v)).toFixed(0) : '-inf');
+
+/**
+ * Estado de la cadena en una línea. Responde, por orden, a las tres preguntas
+ * que hay que hacerse cuando no aparece ninguna lectura: ¿llegan bloques?,
+ * ¿traen señal?, ¿se está detectando algo?
+ */
+function paintDiag() {
+  const el = $('diag');
+  if (!S.running) { el.hidden = true; return; }
+  el.hidden = false;
+
+  const st = capture.state;
+  if (st !== 'running') {
+    el.className = 'diag err';
+    el.textContent = `AudioContext en estado «${st}»: no se está procesando nada. `
+      + 'Pulsa en cualquier parte de la página para arrancarlo.';
+    return;
+  }
+
+  const since = performance.now() - S.lastBlockMs;
+  if (!S.blocks) {
+    el.className = 'diag err';
+    el.textContent = 'Sin audio: el contexto corre pero el worklet no ha entregado ni un bloque. '
+      + 'La entrada elegida no está produciendo muestras.';
+    return;
+  }
+  if (since > 1500) {
+    el.className = 'diag err';
+    el.textContent = `Audio interrumpido hace ${(since / 1000).toFixed(1)} s `
+      + `(${S.blocks} bloques recibidos). El dispositivo ha dejado de entregar muestras.`;
+    return;
+  }
+
+  const tps = S.tickTimes.length / 3;
+  const parts = [
+    `${S.blocks} bloques`,
+    `nivel ${dbfs(S.level)} dBFS (pico ${dbfs(S.peak)})`,
+    `${tps.toFixed(1)} tics/s`,
+    `${S.fs} Hz`,
+    st,
+  ];
+  if (S.level < 3e-5) {
+    el.className = 'diag err';
+    parts.push('— entrada en SILENCIO: dispositivo equivocado o entrada muteada');
+  } else if (tps < 0.5) {
+    el.className = 'diag warn';
+    parts.push('— hay señal pero no se detectan tics: baja la sensibilidad o ajusta la banda');
+  } else {
+    el.className = 'diag';
+  }
+  el.textContent = parts.join(' · ');
 }
 
 function setChip(el, level, text) {
@@ -445,7 +542,9 @@ async function refreshDevices(preferId) {
 
 async function start() {
   try {
-    await requestPermission();
+    // Solo se pide permiso si hace falta: el diálogo consume la activación de
+    // usuario del clic, y pedirlo cuando ya está concedido la gasta para nada.
+    if (!(await hasPermission())) await requestPermission();
     await refreshDevices($('device').value);
     const deviceId = $('device').value;
     const info = await capture.start(deviceId, 4096);
@@ -457,6 +556,11 @@ async function start() {
 
     S.running = true;
     S.lastGapCount = 0;
+    S.blocks = 0;
+    S.level = 0;
+    S.peak = 0;
+    S.tickTimes = [];
+    S.lastBlockMs = performance.now();
     t0Wall = performance.now() / 1000;
     for (const c of charts) c.clear();
     rows.length = 0;
@@ -466,7 +570,12 @@ async function start() {
     const rateNote = info.sampleRate === info.requestedRate
       ? `${info.sampleRate} Hz`
       : `${info.sampleRate} Hz (se pidieron ${info.requestedRate})`;
-    setStatus(`Capturando · ${info.label || 'entrada'} · ${rateNote} · procesado del navegador desactivado.`);
+    if (info.state !== 'running') {
+      setStatus('El navegador ha dejado el audio SUSPENDIDO: el diálogo de permiso '
+        + 'consumió el gesto del clic. Pulsa en cualquier parte de la página para arrancarlo.', true);
+    } else {
+      setStatus(`Capturando · ${info.label || 'entrada'} · ${rateNote} · procesado del navegador desactivado.`);
+    }
   } catch (e) {
     setStatus(`No se pudo abrir la entrada: ${e.message}`, true);
   }
@@ -597,6 +706,20 @@ function wire() {
   });
 
   window.addEventListener('resize', redraw);
+
+  // Red de seguridad: si el contexto quedó suspendido, cualquier gesto
+  // posterior lo arranca. Es el patrón estándar contra la política de
+  // reproducción automática, y aquí resuelve el caso de la primera visita a un
+  // origen nuevo, donde el diálogo de permiso se come la activación del clic.
+  const wake = async () => {
+    if (capture.state !== 'suspended') return;
+    if ((await capture.resume()) === 'running') {
+      setStatus('Audio arrancado. Capturando.');
+    }
+  };
+  for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
+    document.addEventListener(ev, wake, { passive: true });
+  }
 }
 
 /* -------------------------------------------------------------- arranque */
@@ -612,6 +735,16 @@ async function init() {
     $('toggle').disabled = true;
     return;
   }
+  // Sin esto, cualquier excepción en el bucle de pintado o en una promesa
+  // rechazada es invisible salvo que se abran las herramientas de desarrollo,
+  // cosa poco práctica en un banco de trabajo o en el móvil.
+  window.addEventListener('error', (e) => {
+    setStatus(`Error: ${e.message} (${e.filename || ''}:${e.lineno || ''})`, true);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    setStatus(`Error sin capturar: ${e.reason && e.reason.message ? e.reason.message : e.reason}`, true);
+  });
+
   wire();
   try {
     await refreshDevices();

@@ -45,6 +45,14 @@ body {
 .bar-controls { display: flex; gap: 8px; justify-self: end; }
 .status { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
 .status.err { color: var(--critical); }
+.diag {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.diag.warn { color: var(--warning); }
+.diag.err { color: var(--critical); }
 
 button, select, input[type="number"] {
   font: inherit;

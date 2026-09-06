@@ -20,6 +20,12 @@ export async function requestPermission() {
   s.getTracks().forEach((t) => t.stop());
 }
 
+/** ¿Ya hay permiso? Si lo hay, enumerateDevices() devuelve etiquetas. */
+export async function hasPermission() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return devices.some((d) => d.kind === 'audioinput' && d.label);
+}
+
 export async function listInputs() {
   const devices = await navigator.mediaDevices.enumerateDevices();
   return devices.filter((d) => d.kind === 'audioinput' && d.deviceId !== 'default');
@@ -72,7 +78,7 @@ export class AudioCapture {
     // funciona igual servida en la raíz que bajo un subpath (GitHub Pages sirve
     // el proyecto en /<repo>/), y no depende de la barra final ni de un <base>.
     await this.ctx.audioWorklet.addModule(
-      new URL('./worklet/capture-processor.js', import.meta.url)
+      new URL('./worklet/capture-processor.js', import.meta.url).href
     );
 
     this.source = this.ctx.createMediaStreamSource(this.stream);
@@ -92,15 +98,35 @@ export class AudioCapture {
     this.node.connect(this.sink);
     this.sink.connect(this.ctx.destination);
 
-    if (this.ctx.state === 'suspended') await this.ctx.resume();
+    // No se espera a resume() indefinidamente. Si el permiso se acaba de
+    // conceder, el diálogo ha consumido la activación de usuario del clic y
+    // Chrome deja la promesa PENDIENTE para siempre en vez de rechazarla: se
+    // colgaría aquí sin lanzar nada. Se sigue adelante y se informa del estado.
+    if (this.ctx.state !== 'running') {
+      await Promise.race([
+        this.ctx.resume().catch(() => {}),
+        new Promise((r) => setTimeout(r, 700)),
+      ]);
+    }
 
     return {
       sampleRate: this.ctx.sampleRate,
       label: track.label,
       requestedRate: PREFERRED_RATE,
+      state: this.ctx.state,
       settings,
     };
   }
+
+  /** Reintento de arranque sobre un gesto de usuario posterior. */
+  async resume() {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      await this.ctx.resume().catch(() => {});
+    }
+    return this.ctx ? this.ctx.state : 'closed';
+  }
+
+  get state() { return this.ctx ? this.ctx.state : 'closed'; }
 
   async stop() {
     if (this.node) { this.node.port.onmessage = null; this.node.disconnect(); this.node = null; }
