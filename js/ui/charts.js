@@ -1,4 +1,5 @@
 import { T, fitCanvas, niceStep } from './theme.js';
+import { t } from '../i18n.js';
 
 /**
  * Serie temporal de una sola magnitud.
@@ -124,7 +125,7 @@ export class TimeSeries {
     ctx.textAlign = 'left';
     ctx.fillText(`-${fmtDur(this.windowSeconds)}`, padL, h - 5);
     ctx.textAlign = 'right';
-    ctx.fillText('ahora', w - padR, h - 5);
+    ctx.fillText(t('chart.now'), w - padR, h - 5);
 
     if (this.cursor && pts.length) this._hover(ctx, pts, xOf, yOf, padL, pw, padT, ph, w);
 

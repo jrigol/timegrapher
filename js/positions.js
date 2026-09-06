@@ -1,3 +1,5 @@
+import { t, nf, signed, locale, csvSep } from './i18n.js';
+
 /**
  * Sesión de medida por posiciones.
  *
@@ -14,20 +16,24 @@
 
 /** Las seis posiciones estándar. `axis` separa horizontales de verticales. */
 export const POSITIONS = [
-  { key: 'EA', name: 'Esfera arriba', axis: 'H' },
-  { key: 'EB', name: 'Esfera abajo', axis: 'H' },
-  { key: 'CA', name: 'Corona arriba', axis: 'V' },
-  { key: 'CB', name: 'Corona abajo', axis: 'V' },
-  { key: 'CI', name: 'Corona izquierda', axis: 'V' },
-  { key: 'CD', name: 'Corona derecha', axis: 'V' },
+  { key: 'dialUp', axis: 'H' },
+  { key: 'dialDown', axis: 'H' },
+  { key: 'crownUp', axis: 'V' },
+  { key: 'crownDown', axis: 'V' },
+  { key: 'crownLeft', axis: 'V' },
+  { key: 'crownRight', axis: 'V' },
 ];
+
+/** Nombre y código dependen del idioma; la clave, no. Cambiar de idioma a
+ *  media sesión reetiqueta la tabla sin perder ninguna medida. */
+export const posName = (key) => t(`pos.${key}.name`);
+export const posCode = (key) => t(`pos.${key}.code`);
 
 const KEYS = POSITIONS.map((p) => p.key);
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : null);
 
-/** Coma decimal en las dos salidas: la interfaz está en español. */
-const num = (v, d = 1) => v.toFixed(d).replace('.', ',');
-const signed = (v, d = 1) => (v >= 0 ? '+' : '') + num(v, d);
+// El separador decimal lo pone el idioma activo, en la interfaz y en las salidas.
+const num = nf;
 
 export class PositionSession {
   constructor() { this.reset(); }
@@ -50,7 +56,8 @@ export class PositionSession {
 
   /** Posiciones capturadas, en el orden canónico. */
   entries() {
-    return POSITIONS.filter((p) => this.data[p.key]).map((p) => ({ ...p, ...this.data[p.key] }));
+    return POSITIONS.filter((p) => this.data[p.key])
+      .map((p) => ({ ...p, name: posName(p.key), code: posCode(p.key), ...this.data[p.key] }));
   }
 
   /**
@@ -85,39 +92,41 @@ export class PositionSession {
 
   /** Cabecera común a los dos formatos de salida. */
   _meta(meta = {}) {
-    const lines = [
-      ['Fecha', new Date().toLocaleString('es-ES')],
-      ['Referencia', meta.reference || '—'],
-      ['Alternancias', meta.bph ? `${meta.bph} bph` : '—'],
-      ['Ángulo de alzada', meta.liftAngle ? `${meta.liftAngle}°` : '—'],
-      ['Calibración', meta.calibration || 'sin calibrar'],
+    const dash = t('export.none');
+    return [
+      [t('export.date'), new Date().toLocaleString(locale())],
+      [t('export.reference'), meta.reference || dash],
+      [t('export.bph'), meta.bph ? `${meta.bph} bph` : dash],
+      [t('export.lift'), meta.liftAngle ? `${meta.liftAngle}°` : dash],
+      [t('export.calibration'), meta.calibration || t('export.uncalibrated')],
     ];
-    return lines;
   }
 
   toCsv(meta = {}) {
+    const sep = csvSep();
     const esc = (v) => {
       const s = String(v ?? '');
-      return /[",;\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      return new RegExp(`["${sep}\n]`).test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const out = this._meta(meta).map(([k, v]) => `${esc(k)};${esc(v)}`);
+    const out = this._meta(meta).map(([k, v]) => `${esc(k)}${sep}${esc(v)}`);
     out.push('');
-    out.push(['Posición', 'Código', 'Marcha (s/día)', 'Amplitud (°)', 'Error de batida (ms)', 'Hora'].join(';'));
+    out.push([t('export.position'), t('export.code'), t('export.rate'),
+      t('export.amplitude'), t('export.beat'), t('export.time')].map(esc).join(sep));
     for (const r of this.entries()) {
       out.push([
-        esc(r.name), r.key,
-        num(r.rate),
+        esc(r.name), r.code,
+        esc(num(r.rate)),
         r.amplitude == null ? '' : Math.round(r.amplitude),
-        num(r.beatError, 2),
-        r.at.toLocaleTimeString('es-ES'),
-      ].join(';'));
+        esc(num(r.beatError, 2)),
+        r.at.toLocaleTimeString(locale()),
+      ].join(sep));
     }
     const s = this.summary();
     if (s) {
       out.push('');
-      out.push(`Delta (${s.max.key}-${s.min.key});${num(s.delta)}`);
-      if (s.drop != null) out.push(`Caída de amplitud H-V;${Math.round(s.drop)}`);
-      out.push(`Error de batida máximo;${num(s.beatMax, 2)}`);
+      out.push(`${esc(`${t('export.deltaLabel')} (${s.max.code}-${s.min.code})`)}${sep}${esc(num(s.delta))}`);
+      if (s.drop != null) out.push(`${esc(t('export.dropLabel'))}${sep}${Math.round(s.drop)}`);
+      out.push(`${esc(t('export.beatMaxLabel'))}${sep}${esc(num(s.beatMax, 2))}`);
     }
     return out.join('\n');
   }
@@ -126,7 +135,7 @@ export class PositionSession {
     const pad = (v, n) => String(v).padStart(n);
     const out = this._meta(meta).map(([k, v]) => `${k}: ${v}`);
     out.push('');
-    out.push('Posición              Marcha   Ampl.   Batida');
+    out.push(t('export.tableHead'));
     for (const r of this.entries()) {
       out.push(
         r.name.padEnd(20) +
@@ -138,11 +147,13 @@ export class PositionSession {
     const s = this.summary();
     if (s) {
       out.push('');
-      out.push(`Delta: ${num(s.delta)} s/día  (${s.max.key} ${signed(s.max.rate)} · ${s.min.key} ${signed(s.min.rate)})`);
+      out.push(`${t('export.deltaLabel')}: ${num(s.delta)} ${t('tile.rateUnit')}  ` +
+        `(${s.max.code} ${signed(s.max.rate)} · ${s.min.code} ${signed(s.min.rate)})`);
       if (s.drop != null) {
-        out.push(`Amplitud: horizontal ${Math.round(s.horiz)}° · vertical ${Math.round(s.vert)}° · caída ${Math.round(s.drop)}°`);
+        out.push(t('export.amplitudeLine',
+          { h: Math.round(s.horiz), v: Math.round(s.vert), d: Math.round(s.drop) }));
       }
-      out.push(`Error de batida máximo: ${num(s.beatMax, 2)} ms`);
+      out.push(`${t('export.beatMaxLabel')}: ${num(s.beatMax, 2)} ms`);
     }
     return out.join('\n');
   }
@@ -153,17 +164,17 @@ export class PositionSession {
  * COSC admite hasta 10 s/día de diferencia entre posiciones en un cronómetro.
  */
 export function judgeDelta(delta, count) {
-  if (count < 2) return { level: '', text: 'hacen falta al menos dos posiciones' };
-  if (delta <= 10) return { level: 'good', text: 'dentro de criterio de cronómetro' };
-  if (delta <= 25) return { level: 'warning', text: 'aceptable en un reloj corriente' };
-  if (delta <= 60) return { level: 'serious', text: 'revisar poise y pivotes' };
-  return { level: 'critical', text: 'algo va mal' };
+  if (count < 2) return { level: '', text: t('judge.delta.need') };
+  if (delta <= 10) return { level: 'good', text: t('judge.delta.good') };
+  if (delta <= 25) return { level: 'warning', text: t('judge.delta.warning') };
+  if (delta <= 60) return { level: 'serious', text: t('judge.delta.serious') };
+  return { level: 'critical', text: t('judge.delta.critical') };
 }
 
 /** Juicio sobre la caída de amplitud horizontal -> vertical. */
 export function judgeDrop(drop) {
   if (drop == null) return { level: '', text: '' };
-  if (drop <= 30) return { level: 'good', text: 'normal' };
-  if (drop <= 50) return { level: 'warning', text: 'algo alta' };
-  return { level: 'serious', text: 'pivotes o poise' };
+  if (drop <= 30) return { level: 'good', text: t('judge.drop.good') };
+  if (drop <= 50) return { level: 'warning', text: t('judge.drop.warning') };
+  return { level: 'serious', text: t('judge.drop.serious') };
 }

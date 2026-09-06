@@ -7,6 +7,12 @@ la evolución temporal de las tres magnitudes.
 
 No necesita servidor de aplicación, ni build, ni dependencias.
 
+Interfaz en **español e inglés**, con selector en la barra superior. Al abrirla
+por primera vez toma el idioma del navegador y luego recuerda la elección. El
+idioma arrastra el formato numérico —coma decimal en español, punto en inglés—,
+los códigos de posición (EA/EB/CA frente a DU/DD/CU) y el separador del CSV, que
+en español es `;` porque la coma ya es el decimal.
+
 ## El hardware
 
 Está pensado para una sonda piezo/micrófono conectada a una **tarjeta de sonido
@@ -200,6 +206,8 @@ muestras. Recupera la marcha con un error < 0,01 s/día, el error de batida
 index.html            interfaz
 css/style.css
 js/app.js             orquestación: cadena por bloque y pintado
+js/i18n.js            diccionario es/en, formato numérico y traducción del marcado
+js/positions.js       sesión por posiciones, delta y exportación
 js/audio.js           getUserMedia + AudioContext (procesado del navegador desactivado)
 js/calibration.js     corrección del reloj de muestreo
 js/worklet/

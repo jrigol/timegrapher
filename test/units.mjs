@@ -285,31 +285,87 @@ console.log('\nRutas de dibujado');
   check('gráfico con un solo punto', !threw, threw ? threw.message : '');
 }
 
+/* Interfaz bilingüe. Lo que se comprueba no es la traducción -eso es criterio-
+   sino que no haya huecos: una clave sin traducir se ve en pantalla. */
+console.log('\nIdioma');
+{
+  const fs = await import('node:fs');
+  const i18n = await import('../js/i18n.js');
+  const { t, setLang, keysOf, langs, nf, signed, csvSep } = i18n;
+
+  const [es, en] = langs().map(keysOf);
+  check('los dos idiomas están declarados', langs().join(',') === 'es,en');
+  check('mismo número de claves', es.length === en.length, `${es.length}`);
+  const missing = es.filter((k) => !en.includes(k));
+  const extra = en.filter((k) => !es.includes(k));
+  check('sin claves sin traducir al inglés', missing.length === 0, missing.join(', '));
+  check('sin claves sobrantes en inglés', extra.length === 0, extra.join(', '));
+
+  // Ninguna traducción puede quedarse vacía ni conservar el texto español por
+  // descuido en cadenas largas.
+  setLang('en', { persist: false });
+  const empty = en.filter((k) => !String(t(k)).trim());
+  check('ninguna traducción vacía', empty.length === 0, empty.join(', '));
+
+  // Los parámetros {x} tienen que coincidir en ambos idiomas o la frase inglesa
+  // saldría con un hueco sin rellenar.
+  const params = (k, lang) => {
+    setLang(lang, { persist: false });
+    return [...String(t(k)).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',');
+  };
+  const mismatched = es.filter((k) => params(k, 'es') !== params(k, 'en'));
+  check('los parámetros coinciden entre idiomas', mismatched.length === 0, mismatched.join(', '));
+
+  // Toda clave que use el código debe existir; una clave suelta se ve en pantalla.
+  const sources = ['../js/app.js', '../js/positions.js', '../js/ui/charts.js']
+    .map((f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8')).join('\n');
+  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const used = new Set([
+    ...[...sources.matchAll(/\bt\(\s*'([a-zA-Z][\w.]*)'/g)].map((m) => m[1]),
+    ...[...sources.matchAll(/t\(`([a-z]+)\.\$\{[^}]+\}`\)/g)].map(() => null).filter(Boolean),
+    ...[...html.matchAll(/data-i18n[a-z-]*="([^"]+)"/g)].map((m) => m[1]),
+  ]);
+  const unknown = [...used].filter((k) => !es.includes(k));
+  check('todas las claves usadas existen', unknown.length === 0, unknown.join(', '));
+  check('el HTML usa claves de verdad', [...used].some((k) => k.startsWith('tile.')));
+
+  // El formato numérico sigue al idioma, y con él el separador del CSV: un
+  // Excel en español espera `;` porque la coma ya es el decimal.
+  setLang('es', { persist: false });
+  check('español usa coma decimal', nf(4.25, 2) === '4,25', nf(4.25, 2));
+  check('español separa el CSV con ;', csvSep() === ';');
+  check('el signo se antepone', signed(4.2, 1) === '+4,2', signed(4.2, 1));
+  setLang('en', { persist: false });
+  check('inglés usa punto decimal', nf(4.25, 2) === '4.25', nf(4.25, 2));
+  check('inglés separa el CSV con ,', csvSep() === ',');
+  setLang('es', { persist: false });
+}
+
 /* El bloque de posiciones es donde vive el trabajo real: el diagnóstico está en
    las diferencias entre posiciones, no en ninguna lectura suelta. */
 console.log('\nSesión por posiciones');
 {
-  const { PositionSession, POSITIONS, judgeDelta, judgeDrop } =
+  const { PositionSession, POSITIONS, judgeDelta, judgeDrop, posCode } =
     await import('../js/positions.js');
 
   const s = new PositionSession();
   check('arranca vacía', s.isEmpty && s.summary() === null);
 
   // Se capturan desordenadas a propósito.
-  s.capture('CB', { rate: -6.2, amplitude: 251, beatError: 0.31 });
-  s.capture('EA', { rate: 4.1, amplitude: 288, beatError: 0.22 });
-  s.capture('EB', { rate: 2.8, amplitude: 284, beatError: 0.25 });
-  s.capture('CI', { rate: -1.4, amplitude: 259, beatError: 0.29 });
+  s.capture('crownDown', { rate: -6.2, amplitude: 251, beatError: 0.31 });
+  s.capture('dialUp', { rate: 4.1, amplitude: 288, beatError: 0.22 });
+  s.capture('dialDown', { rate: 2.8, amplitude: 284, beatError: 0.25 });
+  s.capture('crownLeft', { rate: -1.4, amplitude: 259, beatError: 0.29 });
 
   check('cuenta las capturadas', s.count === 4);
   check('las devuelve en orden canónico',
-    s.entries().map((e) => e.key).join(',') === 'EA,EB,CB,CI',
-    s.entries().map((e) => e.key).join(','));
+    s.entries().map((e) => e.code).join(',') === 'EA,EB,CB,CI',
+    s.entries().map((e) => e.code).join(','));
 
   const sum = s.summary();
   check('delta = máxima menos mínima', Math.abs(sum.delta - (4.1 - -6.2)) < 1e-9,
     `${sum.delta.toFixed(1)} s/día`);
-  check('identifica los extremos', sum.max.key === 'EA' && sum.min.key === 'CB');
+  check('identifica los extremos', sum.max.code === 'EA' && sum.min.code === 'CB');
 
   // La caída horizontal->vertical: media de EA/EB contra media de las de corona.
   check('media horizontal', Math.abs(sum.horiz - 286) < 1e-9, `${sum.horiz}°`);
@@ -319,19 +375,19 @@ console.log('\nSesión por posiciones');
 
   // Sin verticales no hay caída que calcular.
   const h = new PositionSession();
-  h.capture('EA', { rate: 1, amplitude: 290, beatError: 0.1 });
-  h.capture('EB', { rate: 2, amplitude: 288, beatError: 0.1 });
+  h.capture('dialUp', { rate: 1, amplitude: 290, beatError: 0.1 });
+  h.capture('dialDown', { rate: 2, amplitude: 288, beatError: 0.1 });
   check('sin verticales, no hay caída', h.summary().drop === null);
 
   // Una amplitud que no se resolvió no debe contaminar la media.
   const n = new PositionSession();
-  n.capture('EA', { rate: 1, amplitude: 290, beatError: 0.1 });
-  n.capture('CA', { rate: 2, amplitude: null, beatError: 0.1 });
+  n.capture('dialUp', { rate: 1, amplitude: 290, beatError: 0.1 });
+  n.capture('crownUp', { rate: 2, amplitude: null, beatError: 0.1 });
   check('la amplitud sin resolver se excluye', n.summary().vert === null);
 
   // Una sola posición: hay resumen, pero el delta no significa nada.
   const one = new PositionSession();
-  one.capture('EA', { rate: 5, amplitude: 280, beatError: 0.2 });
+  one.capture('dialUp', { rate: 5, amplitude: 280, beatError: 0.2 });
   check('con una sola posición el delta es 0', one.summary().delta === 0);
   check('y el juicio lo dice', judgeDelta(0, 1).text.includes('dos posiciones'));
 
@@ -348,7 +404,7 @@ console.log('\nSesión por posiciones');
     lines.some((l) => l.includes('"Seiko ""SKX""; nº 1"')));
   check('el CSV usa coma decimal', csv.includes('4,1') && csv.includes('0,22'));
   check('el CSV trae una fila por posición',
-    POSITIONS.filter((p) => s.get(p.key)).every((p) => csv.includes(`;${p.key};`)));
+    POSITIONS.filter((p) => s.get(p.key)).every((p) => csv.includes(`;${posCode(p.key)};`)));
   check('el CSV cierra con el delta', /Delta \(EA-CB\);10,3/.test(csv));
 
   const txt = s.toText({ reference: 'X' });
@@ -357,8 +413,23 @@ console.log('\nSesión por posiciones');
   check('el texto usa coma decimal, como el CSV',
     txt.includes('+4,1') && txt.includes('10,3') && !/\d\.\d/.test(txt));
 
-  s.clear('EA');
-  check('se puede borrar una posición suelta', s.count === 3 && s.get('EA') === null);
+  // Cambiar de idioma a media sesión reetiqueta, no pierde: la sesión se indexa
+  // por la clave estable, no por el código, que sí cambia (EA -> DU).
+  const i18n = await import('../js/i18n.js');
+  i18n.setLang('en', { persist: false });
+  check('el cambio de idioma conserva las medidas', s.count === 4);
+  check('y reetiqueta los códigos',
+    s.entries().map((e) => e.code).join(',') === 'DU,DD,CD,CL',
+    s.entries().map((e) => e.code).join(','));
+  check('y los nombres', s.entries()[0].name === 'Dial up', s.entries()[0].name);
+  const csvEn = s.toCsv({ reference: 'a,b' });
+  check('el CSV inglés separa con coma y escapa', csvEn.includes('"a,b"'));
+  check('el CSV inglés usa punto decimal', /(^|,)4\.1(,|$)/m.test(csvEn));
+  i18n.setLang('es', { persist: false });
+  check('al volver, los códigos también', s.entries()[0].code === 'EA');
+
+  s.clear('dialUp');
+  check('se puede borrar una posición suelta', s.count === 3 && s.get('dialUp') === null);
   s.reset();
   check('reset la vacía entera', s.isEmpty);
 }

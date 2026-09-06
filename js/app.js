@@ -5,12 +5,17 @@ import { BphDetector, STANDARD_BPH } from './dsp/bph.js';
 import { RateTracker } from './dsp/tracker.js';
 import { AmplitudeMeter, dtFromAmplitude } from './dsp/amplitude.js';
 import { ClockCalibration } from './calibration.js';
-import { POSITIONS, PositionSession, judgeDelta, judgeDrop } from './positions.js';
+import { POSITIONS, PositionSession, judgeDelta, judgeDrop, posName, posCode } from './positions.js';
+import { t, nf, signed, int, locale, setLang, getLang, detectLang, applyStatic, LANGS } from './i18n.js';
 import { PaperTape } from './ui/paper.js';
 import { TimeSeries } from './ui/charts.js';
 import { T } from './ui/theme.js';
 
 const $ = (id) => document.getElementById(id);
+
+// Antes que nada: lo que se construye a nivel de módulo -los gráficos- ya toma
+// sus títulos del idioma activo, sin depender de que applyLanguage() los pise.
+setLang(detectLang(), { persist: false });
 
 /* ------------------------------------------------------------------ estado */
 
@@ -147,7 +152,7 @@ function onBlock(msg, arrivalMs) {
   } catch (e) {
     // Una excepción aquí mataba la cadena en silencio: el intervalo de pintado
     // seguía corriendo y la pantalla se quedaba a «—» sin ninguna pista.
-    setStatus(`Error procesando audio: ${e.message}`, true);
+    setStatus(t('status.blockError', { msg: e.message }), true);
     S.running = false;
   }
 }
@@ -229,9 +234,9 @@ function processTick(tk) {
 /* ------------------------------------------------------------------- vista */
 
 const tape = new PaperTape($('tape'));
-const chRate = new TimeSeries($('ch-rate'), { title: 'Marcha', unit: 's/día', color: T.s1, decimals: 1, symmetric: true });
-const chAmp = new TimeSeries($('ch-amp'), { title: 'Amplitud', unit: '°', color: T.s3, decimals: 0, band: { lo: 270, hi: 315 } });
-const chBeat = new TimeSeries($('ch-beat'), { title: 'Error de batida', unit: 'ms', color: T.s2, decimals: 2 });
+const chRate = new TimeSeries($('ch-rate'), { title: t('tile.rate'), unit: t('tile.rateUnit'), color: T.s1, decimals: 1, symmetric: true });
+const chAmp = new TimeSeries($('ch-amp'), { title: t('tile.amplitude'), unit: '°', color: T.s3, decimals: 0, band: { lo: 270, hi: 315 } });
+const chBeat = new TimeSeries($('ch-beat'), { title: t('tile.beat'), unit: 'ms', color: T.s2, decimals: 2 });
 const charts = [chRate, chAmp, chBeat];
 
 const rows = [];
@@ -245,7 +250,7 @@ function redraw() {
 }
 
 function update() {
-  try { updateInner(); } catch (e) { setStatus(`Error al refrescar: ${e.message}`, true); }
+  try { updateInner(); } catch (e) { setStatus(t('status.paintError', { msg: e.message }), true); }
 }
 
 function updateInner() {
@@ -294,7 +299,7 @@ function updateInner() {
 
 /** Arranca (o reinicia) la medida de una posición. */
 function measureStart(key) {
-  if (!S.running) { setStatus('Arranca la captura antes de medir posiciones.', true); return; }
+  if (!S.running) { setStatus(t('pos.needCapture'), true); return; }
   M.key = key;
   M.startedAt = performance.now() / 1000;
   M.recent = [];
@@ -323,22 +328,22 @@ function settleState(fit, amp, now) {
     M.anchorsAt = P.tracker.anchors;
     M.startedAt = now;
     M.recent = [];
-    return { ready: false, progress: 0, why: 'movimiento detectado' };
+    return { ready: false, progress: 0, why: t('pos.why.moved') };
   }
-  if (!fit) return { ready: false, progress, why: 'sin señal' };
-  if (elapsed < S.fitWindow) return { ready: false, progress, why: 'llenando la ventana' };
-  if (M.recent.length < SETTLE_MIN_SAMPLES) return { ready: false, progress, why: 'reuniendo muestras' };
+  if (!fit) return { ready: false, progress, why: t('pos.why.noSignal') };
+  if (elapsed < S.fitWindow) return { ready: false, progress, why: t('pos.why.filling') };
+  if (M.recent.length < SETTLE_MIN_SAMPLES) return { ready: false, progress, why: t('pos.why.samples') };
 
   const rates = M.recent.map((r) => r.rate).filter(isFinite);
   const spread = Math.max(...rates) - Math.min(...rates);
   if (spread > SETTLE_RATE_SPREAD) {
-    return { ready: false, progress, why: `marcha aún moviéndose (${spread.toFixed(1)} s/día)` };
+    return { ready: false, progress, why: t('pos.why.rate', { v: nf(spread, 1) }) };
   }
   const amps = M.recent.map((r) => r.amp).filter((v) => v != null && isFinite(v));
   if (amps.length >= SETTLE_MIN_SAMPLES / 2) {
     const aSpread = Math.max(...amps) - Math.min(...amps);
     if (aSpread > SETTLE_AMP_SPREAD) {
-      return { ready: false, progress, why: `amplitud aún moviéndose (${aSpread.toFixed(0)}°)` };
+      return { ready: false, progress, why: t('pos.why.amp', { v: Math.round(aSpread) }) };
     }
   }
   return { ready: true, progress: 1, why: '' };
@@ -359,9 +364,10 @@ function measureStep(fit, amp, now) {
       beatError: fit.beatError,
       sigma: fit.rateSigma,
     });
-    const name = POSITIONS.find((p) => p.key === M.key).name;
-    setStatus(`${name}: ${fit.rate >= 0 ? '+' : ''}${fit.rate.toFixed(1)} s/día` +
-      `${amp != null ? ` · ${Math.round(amp)}°` : ''} · ${fit.beatError.toFixed(2)} ms. Capturado.`);
+    setStatus(t('pos.captured', {
+      name: posName(M.key), rate: signed(fit.rate, 1),
+      amp: amp != null ? ` · ${int(amp)}°` : '', beat: nf(fit.beatError, 2),
+    }));
     M.key = null;
   }
   paintPositions(st);
@@ -377,7 +383,7 @@ function paintPositions(st) {
       const b = document.createElement('button');
       b.className = 'pos-cell';
       b.dataset.key = p.key;
-      b.title = `${p.name} — tecla ${i + 1}`;
+      b.title = t('pos.keyHint', { name: posName(p.key), n: i + 1 });
       b.addEventListener('click', () => {
         if (M.key === p.key) measureCancel();
         else measureStart(p.key);
@@ -397,24 +403,25 @@ function paintPositions(st) {
       + (!busy && rec && sum && sum.count > 1 && sum.max.key === key ? ' extreme-hi' : '')
       + (!busy && rec && sum && sum.count > 1 && sum.min.key === key ? ' extreme-lo' : '');
 
+    const code = posCode(p.key), name = escapeHtml(posName(p.key));
     if (busy) {
       const pct = Math.round((st ? st.progress : 0) * 100);
       el.innerHTML =
-        `<span class="pk">${p.key} · midiendo</span>` +
-        `<span class="pn">${p.name}</span>` +
-        `<span class="ps">${st && st.ready === false ? escapeHtml(st.why) : 'estabilizando…'}</span>` +
+        `<span class="pk">${code} · ${t('pos.measuring')}</span>` +
+        `<span class="pn">${name}</span>` +
+        `<span class="ps">${escapeHtml(st && st.ready === false ? st.why : t('pos.settling'))}</span>` +
         `<div class="pos-bar"><div style="width:${pct}%"></div></div>`;
     } else if (rec) {
       el.innerHTML =
-        `<span class="pk">${p.key}</span>` +
-        `<span class="pn">${p.name}</span>` +
-        `<span class="pv">${rec.rate >= 0 ? '+' : ''}${rec.rate.toFixed(1)}<small style="font-size:11px;font-weight:400"> s/día</small></span>` +
-        `<span class="ps">${rec.amplitude == null ? '—' : Math.round(rec.amplitude) + '°'} · ${rec.beatError.toFixed(2)} ms</span>`;
+        `<span class="pk">${code}</span>` +
+        `<span class="pn">${name}</span>` +
+        `<span class="pv">${signed(rec.rate, 1)}<small style="font-size:11px;font-weight:400"> ${t('tile.rateUnit')}</small></span>` +
+        `<span class="ps">${rec.amplitude == null ? '—' : int(rec.amplitude) + '°'} · ${nf(rec.beatError, 2)} ms</span>`;
     } else {
       el.innerHTML =
-        `<span class="pk">${p.key}</span>` +
-        `<span class="pn">${p.name}</span>` +
-        `<span class="ps">sin medir</span>`;
+        `<span class="pk">${code}</span>` +
+        `<span class="pn">${name}</span>` +
+        `<span class="ps">${t('pos.unmeasured')}</span>`;
     }
   }
 
@@ -424,7 +431,7 @@ function paintPositions(st) {
 function paintPosSummary(sum) {
   const el = $('pos-summary');
   if (!sum) {
-    el.innerHTML = '<div class="pos-empty">Sin posiciones medidas. El delta necesita al menos dos.</div>';
+    el.innerHTML = `<div class="pos-empty">${t('pos.empty')}</div>`;
     return;
   }
   const dj = judgeDelta(sum.delta, sum.count);
@@ -432,18 +439,25 @@ function paintPosSummary(sum) {
   const stat = (cls, k, v, n) =>
     `<div class="pos-stat ${cls}"><span class="k">${k}</span><span class="v">${v}</span><span class="n">${n}</span></div>`;
 
-  let html = stat(dj.level, 'Delta de marcha',
-    sum.count > 1 ? `${sum.delta.toFixed(1)} s/día` : '—',
-    sum.count > 1 ? `${sum.max.key} ${sum.max.rate >= 0 ? '+' : ''}${sum.max.rate.toFixed(1)} · ${sum.min.key} ${sum.min.rate >= 0 ? '+' : ''}${sum.min.rate.toFixed(1)} — ${dj.text}` : dj.text);
+  let html = stat(dj.level, t('pos.delta'),
+    sum.count > 1 ? `${nf(sum.delta, 1)} ${t('tile.rateUnit')}` : '—',
+    sum.count > 1
+      ? t('pos.deltaDetail', {
+          max: `${sum.max.code} ${signed(sum.max.rate, 1)}`,
+          min: `${sum.min.code} ${signed(sum.min.rate, 1)}`,
+          verdict: dj.text,
+        })
+      : dj.text);
 
   if (sum.drop != null) {
-    html += stat(rj.level, 'Caída de amplitud', `${Math.round(sum.drop)}°`,
-      `horizontal ${Math.round(sum.horiz)}° · vertical ${Math.round(sum.vert)}° — ${rj.text}`);
+    html += stat(rj.level, t('pos.drop'), `${Math.round(sum.drop)}°`,
+      t('pos.dropDetail', { h: Math.round(sum.horiz), v: Math.round(sum.vert), verdict: rj.text }));
   } else {
-    html += stat('', 'Caída de amplitud', '—', 'hacen falta una horizontal y una vertical');
+    html += stat('', t('pos.drop'), '—', t('pos.dropNeed'));
   }
 
-  html += stat('', 'Error de batida máximo', `${sum.beatMax.toFixed(2)} ms`, `en ${sum.count} de 6 posiciones`);
+  html += stat('', t('pos.beatMax'), `${nf(sum.beatMax, 2)} ms`,
+    t('pos.beatMaxDetail', { n: sum.count }));
   el.innerHTML = html;
 }
 
@@ -453,12 +467,12 @@ function sessionMeta() {
     bph: S.bph,
     liftAngle: P.amp ? P.amp.liftAngle : Number($('lift').value),
     calibration: cal.source === 'none'
-      ? 'sin calibrar'
-      : `${cal.ppm >= 0 ? '+' : ''}${cal.ppm.toFixed(2)} ppm (${cal.source === 'measured' ? 'medida' : 'guardada'})`,
+      ? t('export.uncalibrated')
+      : `${signed(cal.ppm, 2)} ppm (${t(cal.source === 'measured' ? 'cal.sourceMeasured' : 'cal.sourceStored')})`,
   };
 }
 
-const fmtSd = (ppm) => `±${Math.abs(ppm * 0.0864).toFixed(ppm * 0.0864 < 0.1 ? 3 : 2)} s/día`;
+const fmtSd = (ppm) => `±${nf(Math.abs(ppm * 0.0864), Math.abs(ppm * 0.0864) < 0.1 ? 3 : 2)} ${t('tile.rateUnit')}`;
 
 /**
  * Aviso de «este dispositivo no está calibrado», con la acción a mano.
@@ -482,18 +496,21 @@ function paintCalBanner() {
     const est = cal.estimate();
     const secs = cal.elapsedSeconds;
     if (est && secs >= CAL_MIN_SECONDS) {
-      const quality = secs >= CAL_GOOD_SECONDS ? 'De sobra.' : 'Ya es utilizable; a los 5 min baja a ±0,03 s/día.';
-      show('Calibración lista para aplicar',
-        `${fmtClock(secs)} · ${est.ppm >= 0 ? '+' : ''}${est.ppm.toFixed(2)} ppm ` +
-        `· incertidumbre ${fmtSd(est.sigmaPpm)}. ${quality}`,
+      const quality = t(secs >= CAL_GOOD_SECONDS ? 'banner.readyAmple' : 'banner.readyUsable');
+      show(t('banner.readyTitle'),
+        t('banner.readyText', {
+          clock: fmtClock(secs), ppm: signed(est.ppm, 2), sd: fmtSd(est.sigmaPpm), quality,
+        }),
         'ready', { 'cb-adopt': false, 'cb-start': false, 'cb-apply': true, 'cb-cancel': true, 'cb-hide': false });
     } else {
       const left = Math.max(0, CAL_MIN_SECONDS - secs);
-      show('Calibrando el reloj de muestreo…',
+      show(t('banner.measuringTitle'),
         est
-          ? `${fmtClock(secs)} · ${est.ppm >= 0 ? '+' : ''}${est.ppm.toFixed(2)} ppm ` +
-            `· incertidumbre ${fmtSd(est.sigmaPpm)} · ${fmtClock(left)} para poder aplicarla`
-          : `${fmtClock(secs)} · reuniendo bloques. Deja la pestaña en primer plano.`,
+          ? t('banner.measuringLive', {
+              clock: fmtClock(secs), ppm: signed(est.ppm, 2),
+              sd: fmtSd(est.sigmaPpm), left: fmtClock(left),
+            })
+          : t('banner.measuringGathering', { clock: fmtClock(secs) }),
         'measuring', { 'cb-adopt': false, 'cb-start': false, 'cb-apply': false, 'cb-cancel': true, 'cb-hide': false });
     }
     return;
@@ -501,24 +518,19 @@ function paintCalBanner() {
 
   if (cal.candidate && !calDismissed()) {
     const c = cal.candidate.rec;
-    const when = c.storedAt ? new Date(c.storedAt).toLocaleDateString('es-ES') : 'fecha desconocida';
-    show('Hay una calibración guardada con este mismo nombre',
-      `«${c.label}» · ${((c.factor - 1) * 1e6).toFixed(2)} ppm · ${when}. ` +
-      'El identificador del dispositivo ha cambiado, cosa que pasa al borrar los datos del ' +
-      'sitio o al cambiar de puerto USB. Si es la misma sonda, aplícala; si es otra unidad ' +
-      'del mismo modelo, calibra de nuevo: comparten nombre pero no cristal.',
+    const when = c.storedAt ? new Date(c.storedAt).toLocaleDateString(locale()) : '—';
+    show(t('banner.candidateTitle'),
+      t('banner.candidateText',
+        { label: c.label, ppm: signed((c.factor - 1) * 1e6, 2), date: when }),
       '', { 'cb-adopt': true, 'cb-start': true, 'cb-apply': false, 'cb-cancel': false, 'cb-hide': true });
-    $('cb-start').textContent = 'Calibrar de nuevo';
+    $('cb-start').textContent = t('banner.calibrateAgain');
     return;
   }
 
   if (cal.source === 'none' && !calDismissed()) {
-    show('Este dispositivo no está calibrado',
-      'La marcha arrastra el error del cristal de la tarjeta de sonido: hasta ±8,6 s/día, ' +
-      'más que toda la banda de un cronómetro. La amplitud y el error de batida no se ven afectados. ' +
-      'Bastan 2 minutos; 5 lo dejan fino.',
+    show(t('banner.noneTitle'), t('banner.noneText'),
       '', { 'cb-adopt': false, 'cb-start': true, 'cb-apply': false, 'cb-cancel': false, 'cb-hide': true });
-    $('cb-start').textContent = 'Calibrar ahora';
+    $('cb-start').textContent = t('banner.calibrateNow');
     return;
   }
 
@@ -531,25 +543,27 @@ function paintCalList() {
   const items = cal.list();
   el.innerHTML = '';
   if (!items.length) {
-    el.innerHTML = '<div class="cal-empty">Ninguna todavía.</div>';
+    el.innerHTML = `<div class="cal-empty">${t('cal.storedEmpty')}</div>`;
     return;
   }
   for (const it of items) {
     const row = document.createElement('div');
     row.className = `cal-row${it.active ? ' active' : ''}`;
-    const when = it.storedAt ? new Date(it.storedAt).toLocaleDateString('es-ES') : '—';
+    const when = it.storedAt ? new Date(it.storedAt).toLocaleDateString(locale()) : '—';
     row.innerHTML =
       `<span class="name">${escapeHtml(it.label)}</span>` +
-      `<span class="val">${it.ppm >= 0 ? '+' : ''}${it.ppm.toFixed(2)} ppm</span>` +
+      `<span class="val">${signed(it.ppm, 2)} ppm</span>` +
       `<span class="when">${when}</span>` +
-      (it.active ? '<span class="tag">en uso</span>' : '');
+      (it.active ? `<span class="tag">${t('cal.inUse')}</span>` : '');
     const del = document.createElement('button');
     del.className = 'ghost';
-    del.textContent = 'Borrar';
+    del.textContent = t('cal.deleteBtn');
     del.addEventListener('click', () => {
+      // Son minutos de medición: no se tira sin preguntar.
+      if (!confirm(t('cal.confirmRemove', { label: it.label, ppm: signed(it.ppm, 2) }))) return;
       cal.remove(it.deviceId);
       paintCalList();
-      setStatus(`Calibración de «${it.label}» borrada.`);
+      setStatus(t('cal.removed', { label: it.label }));
     });
     row.appendChild(del);
     el.appendChild(row);
@@ -562,9 +576,9 @@ function escapeHtml(t) {
 
 /** Arranca la medición y deja el panel a la vista. */
 function startCalibration() {
-  if (!S.running) { setStatus('La calibración necesita la captura en marcha.', true); return; }
+  if (!S.running) { setStatus(t('cal.needCapture'), true); return; }
   cal.start(S.fs, $('device').value, S.deviceLabel);
-  $('btn-cal').textContent = 'Detener medición';
+  $('btn-cal').textContent = t('cal.stopBtn');
   $('cal-details').open = true;
 }
 
@@ -572,13 +586,14 @@ function applyCalibration() {
   const est = cal.commit();
   if (!est) return;
   cal.stop();
-  $('btn-cal').textContent = 'Iniciar medición';
+  $('btn-cal').textContent = t('cal.startBtn');
   $('btn-cal-apply').disabled = true;
-  $('cal-live').textContent =
-    `Corrección aplicada y guardada para este dispositivo: ${est.ppm.toFixed(2)} ± ${est.sigmaPpm.toFixed(2)} ppm ` +
-    `sobre ${fmtClock(est.seconds)} (${fmtSd(est.sigmaPpm)}).`;
-  setStatus(`Calibración aplicada: ${est.ppm >= 0 ? '+' : ''}${est.ppm.toFixed(2)} ppm, ` +
-    `corrige ${cal.errorSecondsPerDay >= 0 ? '+' : ''}${cal.errorSecondsPerDay.toFixed(2)} s/día.`);
+  $('cal-live').textContent = t('cal.appliedPanel', {
+    ppm: signed(est.ppm, 2), sigma: nf(est.sigmaPpm, 2),
+    clock: fmtClock(est.seconds), sd: fmtSd(est.sigmaPpm),
+  });
+  setStatus(t('cal.appliedStatus',
+    { ppm: signed(est.ppm, 2), sd: signed(cal.errorSecondsPerDay, 2) }));
   paintCalList();
   P.tracker.reset();
 }
@@ -598,39 +613,36 @@ function paintDiag() {
   const st = capture.state;
   if (st !== 'running') {
     el.className = 'diag err';
-    el.textContent = `AudioContext en estado «${st}»: no se está procesando nada. `
-      + 'Pulsa en cualquier parte de la página para arrancarlo.';
+    el.textContent = t('diag.suspended', { state: st });
     return;
   }
 
   const since = performance.now() - S.lastBlockMs;
   if (!S.blocks) {
     el.className = 'diag err';
-    el.textContent = 'Sin audio: el contexto corre pero el worklet no ha entregado ni un bloque. '
-      + 'La entrada elegida no está produciendo muestras.';
+    el.textContent = t('diag.noBlocks');
     return;
   }
   if (since > 1500) {
     el.className = 'diag err';
-    el.textContent = `Audio interrumpido hace ${(since / 1000).toFixed(1)} s `
-      + `(${S.blocks} bloques recibidos). El dispositivo ha dejado de entregar muestras.`;
+    el.textContent = t('diag.interrupted', { s: nf(since / 1000, 1), n: S.blocks });
     return;
   }
 
   const tps = S.tickTimes.length / 3;
   const parts = [
-    `${S.blocks} bloques`,
-    `nivel ${dbfs(S.level)} dBFS (pico ${dbfs(S.peak)})`,
-    `${tps.toFixed(1)} tics/s`,
+    t('diag.blocks', { n: S.blocks }),
+    t('diag.level', { rms: dbfs(S.level), peak: dbfs(S.peak) }),
+    t('diag.ticks', { v: nf(tps, 1) }),
     `${S.fs} Hz`,
     st,
   ];
   if (S.level < 3e-5) {
     el.className = 'diag err';
-    parts.push('— entrada en SILENCIO: dispositivo equivocado o entrada muteada');
+    parts.push(t('diag.silent'));
   } else if (tps < 0.5) {
     el.className = 'diag warn';
-    parts.push('— hay señal pero no se detectan tics: baja la sensibilidad o ajusta la banda');
+    parts.push(t('diag.noTicks'));
   } else {
     el.className = 'diag';
   }
@@ -645,19 +657,20 @@ function setChip(el, level, text) {
 function paintRate(fit) {
   if (!fit) {
     $('v-rate').textContent = '—';
-    setChip($('c-rate'), '', 'sin señal');
+    setChip($('c-rate'), '', t('chip.noSignal'));
     $('n-rate').textContent = '';
     return;
   }
   const r = fit.rate;
-  $('v-rate').textContent = (r >= 0 ? '+' : '') + r.toFixed(1);
+  $('v-rate').textContent = signed(r, 1);
   const a = Math.abs(r);
   setChip($('c-rate'),
     a <= 10 ? 'good' : a <= 30 ? 'warning' : a <= 90 ? 'serious' : 'critical',
-    a <= 10 ? 'buena marcha' : a <= 30 ? 'regulable' : a <= 90 ? 'muy desviada' : 'revisar reloj');
-  const parts = [`±${fit.rateSigma.toFixed(1)} (ajuste)`];
-  if (cal.source === 'none') parts.push('sin calibrar: hasta ±8,6 s/día de sesgo');
-  else parts.push(`corregido ${cal.ppm >= 0 ? '+' : ''}${cal.ppm.toFixed(1)} ppm`);
+    t(a <= 10 ? 'chip.rate.good' : a <= 30 ? 'chip.rate.warning'
+      : a <= 90 ? 'chip.rate.serious' : 'chip.rate.critical'));
+  const parts = [t('note.fitSigma', { v: nf(fit.rateSigma, 1) })];
+  if (cal.source === 'none') parts.push(t('note.uncalibrated'));
+  else parts.push(t('note.corrected', { v: signed(cal.ppm, 1) }));
   $('n-rate').textContent = parts.join(' · ');
 }
 
@@ -665,52 +678,52 @@ function paintAmp(amp) {
   const cov = P.amp ? P.amp.coverage : 0;
   if (amp === null) {
     $('v-amp').textContent = '—';
-    setChip($('c-amp'), '', cov > 0 ? 'sin resolver' : 'sin señal');
+    setChip($('c-amp'), '', t(cov > 0 ? 'chip.amp.unresolved' : 'chip.noSignal'));
     $('n-amp').textContent = P.amp && P.amp.lastDetail
-      ? `dt fuera de rango (${(P.amp.lastDetail.dt * 1000).toFixed(1)} ms)` : '';
+      ? t('note.dtOutOfRange', { v: nf(P.amp.lastDetail.dt * 1000, 1) }) : '';
     return;
   }
-  $('v-amp').textContent = Math.round(amp).toString();
+  $('v-amp').textContent = int(amp);
   const level = amp >= 270 && amp <= 320 ? 'good'
     : amp >= 240 && amp <= 330 ? 'warning'
     : amp >= 200 ? 'serious' : 'critical';
-  const label = level === 'good' ? 'sana'
-    : level === 'warning' ? 'aceptable'
-    : level === 'serious' ? 'baja' : 'muy baja';
-  setChip($('c-amp'), level, label);
-  $('n-amp').textContent = `alzada ${P.amp.liftAngle}° · ${Math.round(cov * 100)}% de tics resueltos`;
+  setChip($('c-amp'), level, t(`chip.amp.${level}`));
+  $('n-amp').textContent = t('note.liftCoverage',
+    { lift: P.amp.liftAngle, pct: Math.round(cov * 100) });
 }
 
 function paintBeat(fit) {
   if (!fit) {
     $('v-beat').textContent = '—';
-    setChip($('c-beat'), '', 'sin señal');
+    setChip($('c-beat'), '', t('chip.noSignal'));
     $('n-beat').textContent = '';
     return;
   }
   const be = fit.beatError;
-  $('v-beat').textContent = be.toFixed(2);
+  $('v-beat').textContent = nf(be, 2);
   setChip($('c-beat'),
     be <= 0.3 ? 'good' : be <= 0.6 ? 'warning' : be <= 1.0 ? 'serious' : 'critical',
-    be <= 0.3 ? 'centrado' : be <= 0.6 ? 'aceptable' : be <= 1.0 ? 'descentrado' : 'muy descentrado');
-  $('n-beat').textContent = `${fit.n} batidas en ${fit.span.toFixed(0)} s`;
+    t(be <= 0.3 ? 'chip.beat.good' : be <= 0.6 ? 'chip.beat.warning'
+      : be <= 1.0 ? 'chip.beat.serious' : 'chip.beat.critical'));
+  $('n-beat').textContent = t('note.beatsIn', { n: fit.n, s: Math.round(fit.span) });
 }
 
 function paintBph(r) {
-  $('v-bph').textContent = S.bph.toLocaleString('es-ES');
+  $('v-bph').textContent = int(S.bph);
   if (!S.bphAuto) {
-    setChip($('c-bph'), 'good', 'manual');
-    $('n-bph').textContent = r && r.bphRaw ? `medido ${Math.round(r.bphRaw).toLocaleString('es-ES')}` : '';
+    setChip($('c-bph'), 'good', t('chip.bph.manual'));
+    $('n-bph').textContent = r && r.bphRaw ? t('note.bphMeasured', { v: int(r.bphRaw) }) : '';
     return;
   }
   if (S.bphLocked) {
-    setChip($('c-bph'), 'good', 'detectado');
-    $('n-bph').textContent = `bruto ${Math.round(S.bphRaw).toLocaleString('es-ES')} · confianza ${(r.confidence * 100).toFixed(0)}%`;
+    setChip($('c-bph'), 'good', t('chip.bph.detected'));
+    $('n-bph').textContent = t('note.bphRaw',
+      { v: int(S.bphRaw), c: Math.round(r.confidence * 100) });
   } else {
-    setChip($('c-bph'), 'warning', 'buscando');
+    setChip($('c-bph'), 'warning', t('chip.searching'));
     $('n-bph').textContent = r && r.bphRaw
-      ? `bruto ${Math.round(r.bphRaw).toLocaleString('es-ES')}, sin encajar en la tabla`
-      : 'sin periodicidad clara';
+      ? t('note.bphNoFit', { v: int(r.bphRaw) })
+      : t('note.bphNone');
   }
 }
 
@@ -719,7 +732,7 @@ function paintQuality(fit) {
   const bar = $('quality-bar');
   if (!isFinite(q)) {
     bar.style.width = '0%';
-    $('quality-note').textContent = 'Sin señal.';
+    $('quality-note').textContent = t('quality.none');
     return;
   }
   const pct = Math.max(0, Math.min(100, (q / 40) * 100));
@@ -728,12 +741,10 @@ function paintQuality(fit) {
 
   let cov = NaN;
   if (fit && fit.span > 0) cov = fit.n / (fit.span / (3600 / S.bph) + 1);
-  const covTxt = isFinite(cov) ? ` · ${Math.round(Math.min(1, cov) * 100)}% de batidas detectadas` : '';
-  $('quality-note').textContent = q >= 20
-    ? `Buena (${q.toFixed(0)} dB sobre el ruido)${covTxt}`
-    : q >= 12
-      ? `Justa (${q.toFixed(0)} dB)${covTxt}. Recolocar el reloj mejorará sobre todo la amplitud.`
-      : `Pobre (${q.toFixed(0)} dB)${covTxt}. Asienta el reloj contra el sensor antes de fiarte de la amplitud.`;
+  const cov2 = isFinite(cov) ? t('quality.coverage', { pct: Math.round(Math.min(1, cov) * 100) }) : '';
+  const args = { db: Math.round(q), cov: cov2 };
+  $('quality-note').textContent =
+    t(q >= 20 ? 'quality.good' : q >= 12 ? 'quality.fair' : 'quality.poor', args);
 }
 
 function paintTable() {
@@ -741,10 +752,10 @@ function paintTable() {
   tb.innerHTML = '';
   for (const r of rows.slice(-120).reverse()) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${r.clock.toLocaleTimeString('es-ES')}</td>` +
-      `<td>${(r.rate >= 0 ? '+' : '') + r.rate.toFixed(1)}</td>` +
-      `<td>${r.amp === null ? '—' : Math.round(r.amp)}</td>` +
-      `<td>${r.beat.toFixed(2)}</td>`;
+    tr.innerHTML = `<td>${r.clock.toLocaleTimeString(locale())}</td>` +
+      `<td>${signed(r.rate, 1)}</td>` +
+      `<td>${r.amp === null ? '—' : int(r.amp)}</td>` +
+      `<td>${nf(r.beat, 2)}</td>`;
     tb.appendChild(tr);
   }
 }
@@ -759,18 +770,21 @@ function median(a) {
 
 function paintCalibration() {
   $('cal-active').textContent = cal.source === 'none'
-    ? 'ninguna' : `${cal.ppm >= 0 ? '+' : ''}${cal.ppm.toFixed(2)} ppm`;
-  $('cal-source').textContent = cal.source === 'measured' ? 'medida en esta sesión'
-    : cal.source === 'stored' ? `guardada${cal.storedAt ? ` (${new Date(cal.storedAt).toLocaleDateString('es-ES')})` : ''}`
-    : 'sin calibrar';
+    ? t('cal.none') : `${signed(cal.ppm, 2)} ppm`;
+  $('cal-source').textContent = cal.source === 'measured' ? t('cal.sourceMeasured')
+    : cal.source === 'stored'
+      ? (cal.storedAt
+          ? t('cal.sourceStoredOn', { date: new Date(cal.storedAt).toLocaleDateString(locale()) })
+          : t('cal.sourceStored'))
+      : t('cal.sourceNone');
   $('cal-bias').textContent = cal.source === 'none'
-    ? '—' : `${cal.errorSecondsPerDay >= 0 ? '+' : ''}${cal.errorSecondsPerDay.toFixed(2)} s/día`;
+    ? '—' : `${signed(cal.errorSecondsPerDay, 2)} ${t('tile.rateUnit')}`;
 
   if (!cal.running) return;
   const est = cal.estimate();
   const secs = cal.elapsedSeconds;
   if (!est) {
-    $('cal-live').textContent = `Midiendo… ${secs.toFixed(0)} s, ${cal.n} bloques. Hacen falta unos segundos más.`;
+    $('cal-live').textContent = t('cal.gathering', { s: Math.round(secs), n: cal.n });
     $('btn-cal-apply').disabled = true;
     return;
   }
@@ -778,13 +792,12 @@ function paintCalibration() {
   const sdSigma = est.sigmaPpm * 86400 / 1e6;
   const ready = secs >= CAL_MIN_SECONDS;
   $('btn-cal-apply').disabled = !ready;
-  const conf = secs >= CAL_GOOD_SECONDS ? 'de sobra'
-    : secs >= CAL_MIN_SECONDS ? 'utilizable' : 'corta todavía';
-  $('cal-live').textContent =
-    `Midiendo… ${fmtClock(secs)} · fs = ${est.fsReal.toFixed(3)} Hz · ` +
-    `${est.ppm >= 0 ? '+' : ''}${est.ppm.toFixed(2)} ± ${est.sigmaPpm.toFixed(2)} ppm ` +
-    `(equivale a ${sd >= 0 ? '+' : ''}${sd.toFixed(2)} ± ${sdSigma.toFixed(2)} s/día) · base ${conf}` +
-    (cal.gaps ? ` · ${cal.gaps} cortes de audio` : '');
+  const conf = t(secs >= CAL_GOOD_SECONDS ? 'cal.confAmple'
+    : secs >= CAL_MIN_SECONDS ? 'cal.confUsable' : 'cal.confShort');
+  $('cal-live').textContent = t('cal.live', {
+    clock: fmtClock(secs), fs: nf(est.fsReal, 3), ppm: signed(est.ppm, 2),
+    sigma: nf(est.sigmaPpm, 2), sd: signed(sd, 2), sdSigma: nf(sdSigma, 2), conf,
+  }) + (cal.gaps ? t('cal.gaps', { n: cal.gaps }) : '');
 }
 
 function fmtClock(s) {
@@ -800,12 +813,12 @@ const BAND_CANDIDATES = [
 ];
 
 function autotune() {
-  if (!S.running || !P.raw) { setStatus('Arranca la captura antes de ajustar.', true); return; }
+  if (!S.running || !P.raw) { setStatus(t('status.needCapture'), true); return; }
   const need = Math.round(2.5 * S.fs);
   const end = P.raw.end;
   const start = Math.max(P.raw.oldest(), end - need);
   const n = end - start;
-  if (n < S.fs) { setStatus('Necesito un par de segundos de captura para ajustar.', true); return; }
+  if (n < S.fs) { setStatus(t('status.tuneNeedAudio'), true); return; }
 
   const src = new Float32Array(n);
   for (let i = 0; i < n; i++) src[i] = P.raw.at(start + i);
@@ -829,7 +842,7 @@ function autotune() {
   P.envelope.reset();
   P.detector.floorInit = false;
   S.quality = [];
-  setStatus(`Banda ajustada a ${best.lo}–${Math.round(best.hi)} Hz (${best.score.toFixed(0)} dB de contraste tic/ruido).`);
+  setStatus(t('status.tuned', { lo: best.lo, hi: Math.round(best.hi), db: Math.round(best.score) }));
 }
 
 /** Contraste entre los picos y el fondo: p99 frente a p30, en dB. */
@@ -857,19 +870,19 @@ async function refreshDevices(preferId) {
   const sel = $('device');
   sel.innerHTML = '';
   if (!devs.length) {
-    sel.innerHTML = '<option>Sin dispositivos de entrada</option>';
+    sel.innerHTML = `<option>${t('status.noDevices')}</option>`;
     return null;
   }
   const labelled = devs.some((d) => d.label);
   for (const d of devs) {
     const o = document.createElement('option');
     o.value = d.deviceId;
-    o.textContent = d.label || `Entrada ${sel.children.length + 1}`;
+    o.textContent = d.label || t('status.inputN', { n: sel.children.length + 1 });
     sel.appendChild(o);
   }
   const pick = (preferId && devs.find((d) => d.deviceId === preferId)) || guessProbe(devs);
   if (pick) sel.value = pick.deviceId;
-  if (!labelled) setStatus('Pulsa Iniciar para conceder permiso y ver los nombres de los dispositivos.');
+  if (!labelled) setStatus(t('status.grantHint'));
   return pick ? pick.deviceId : devs[0].deviceId;
 }
 
@@ -891,7 +904,7 @@ async function start() {
     S.deviceLabel = info.label || '';
     cal.load(deviceId, info.sampleRate, S.deviceLabel);
     cal.nominal = info.sampleRate;
-    $('btn-cal').textContent = 'Iniciar medición';
+    $('btn-cal').textContent = t('cal.startBtn');
     paintCalList();
     buildPipeline(info.sampleRate);
     P.detector.reset();
@@ -907,22 +920,20 @@ async function start() {
     for (const c of charts) c.clear();
     rows.length = 0;
 
-    $('toggle').textContent = 'Detener';
+    $('toggle').textContent = t('app.stop');
     $('toggle').classList.add('on');
     const rateNote = info.sampleRate === info.requestedRate
       ? `${info.sampleRate} Hz`
-      : `${info.sampleRate} Hz (se pidieron ${info.requestedRate})`;
+      : t('status.rateRequested', { fs: info.sampleRate, want: info.requestedRate });
     if (calWasRunning) {
-      setStatus('Se descartó la calibración en curso: al reabrir la entrada el contador '
-        + 'de frames vuelve a cero y la medición ya no sería válida. Vuelve a lanzarla.', true);
+      setStatus(t('status.calAborted'), true);
     } else if (info.state !== 'running') {
-      setStatus('El navegador ha dejado el audio SUSPENDIDO: el diálogo de permiso '
-        + 'consumió el gesto del clic. Pulsa en cualquier parte de la página para arrancarlo.', true);
+      setStatus(t('status.suspended'), true);
     } else {
-      setStatus(`Capturando · ${info.label || 'entrada'} · ${rateNote} · procesado del navegador desactivado.`);
+      setStatus(t('status.capturing', { label: info.label || '—', rate: rateNote }));
     }
   } catch (e) {
-    setStatus(`No se pudo abrir la entrada: ${e.message}`, true);
+    setStatus(t('status.openFailed', { msg: e.message }), true);
   }
 }
 
@@ -930,13 +941,73 @@ async function stop() {
   S.running = false;
   cal.stop();
   await capture.stop();
-  $('toggle').textContent = 'Iniciar';
+  $('toggle').textContent = t('app.start');
   $('toggle').classList.remove('on');
-  $('btn-cal').textContent = 'Iniciar medición';
-  setStatus('Detenido.');
+  $('btn-cal').textContent = t('cal.startBtn');
+  setStatus(t('status.stopped'));
+}
+
+/**
+ * Vuelve a pintar todo lo que se genera desde JS. El marcado estático lo cubre
+ * applyStatic(); esto es el resto: títulos de gráficos, notas con parámetros,
+ * rejilla de posiciones y estado de la calibración.
+ */
+function applyLanguage() {
+  applyStatic();
+  document.title = t('app.title');
+  $('toggle').textContent = t(S.running ? 'app.stop' : 'app.start');
+  $('btn-cal').textContent = t(cal.running ? 'cal.stopBtn' : 'cal.startBtn');
+  $('btn-table').textContent = t($('table-wrap').hidden ? 'chart.showData' : 'chart.hideData');
+  $('sens-note').textContent = t('set.sensNote', { k: Number($('sens').value) });
+  $('amp-thr-note').textContent = t('set.ampThrNote', { v: Number($('amp-thr').value) });
+
+  chRate.title = t('tile.rate'); chRate.unit = t('tile.rateUnit');
+  chAmp.title = t('tile.amplitude'); chAmp.unit = '°';
+  chBeat.title = t('tile.beat'); chBeat.unit = 'ms';
+
+  buildLiftPresets();
+  // La rejilla se reconstruye para que los títulos de tecla se retraduzcan.
+  $('pos-grid').innerHTML = '';
+  paintPositions();
+  paintCalList();
+  if (!S.running) paintCalibration();
+  if (rows.length && !$('table-wrap').hidden) paintTable();
+  redraw();
+}
+
+/** Valores publicados habitualmente; conviene confirmarlos en la ficha del calibre. */
+const LIFTS = [
+  ['ETA 2824-2 / 2892', 50], ['ETA / Valjoux 7750', 50], ['ETA 6497 / 6498', 44],
+  ['Sellita SW200', 50], ['Seiko NH35 / 7S26', 52], ['Miyota 8215', 51],
+  ['Rolex 3135', 50], [null, 52],
+];
+
+function buildLiftPresets() {
+  const sel = $('lift-preset');
+  const keep = sel.value;
+  sel.innerHTML = `<option value="">${t('set.caliber')}</option>`;
+  for (const [name, ang] of LIFTS) {
+    const o = document.createElement('option');
+    o.value = String(ang);
+    o.textContent = `${name || t('set.generic')} — ${ang}°`;
+    sel.appendChild(o);
+  }
+  sel.value = keep;
 }
 
 function wire() {
+  const langSel = $('lang');
+  for (const [code, name] of Object.entries(LANGS)) {
+    const o = document.createElement('option');
+    o.value = code; o.textContent = name;
+    langSel.appendChild(o);
+  }
+  langSel.value = getLang();
+  langSel.addEventListener('change', (e) => {
+    setLang(e.target.value);
+    applyLanguage();
+  });
+
   $('toggle').addEventListener('click', () => (S.running ? stop() : start()));
   $('device').addEventListener('change', () => { if (S.running) start(); });
 
@@ -957,17 +1028,7 @@ function wire() {
   bphSel.addEventListener('change', () => { if (!S.bphAuto) applyBph(Number(bphSel.value)); });
 
   // Valores publicados habitualmente; conviene confirmarlos en la ficha del calibre.
-  const LIFTS = [
-    ['ETA 2824-2 / 2892', 50], ['ETA / Valjoux 7750', 50], ['ETA 6497 / 6498', 44],
-    ['Sellita SW200', 50], ['Seiko NH35 / 7S26', 52], ['Miyota 8215', 51],
-    ['Rolex 3135', 50], ['Genérico', 52],
-  ];
-  for (const [name, ang] of LIFTS) {
-    const o = document.createElement('option');
-    o.value = String(ang);
-    o.textContent = `${name} — ${ang}°`;
-    $('lift-preset').appendChild(o);
-  }
+  buildLiftPresets();
   $('lift-preset').addEventListener('change', (e) => {
     if (!e.target.value) return;
     $('lift').value = e.target.value;
@@ -1002,13 +1063,12 @@ function wire() {
 
   $('sens').addEventListener('input', (e) => {
     const k = Number(e.target.value);
-    $('sens-note').textContent = `umbral = ${k}× el suelo de ruido`;
+    $('sens-note').textContent = t('set.sensNote', { k });
     if (P.detector) P.detector.k = k;
   });
   $('amp-thr').addEventListener('input', (e) => {
     const v = Number(e.target.value);
-    $('amp-thr-note').textContent =
-      `${v}% del pico del tic. Bájalo si la amplitud no se resuelve; súbelo si la reverberación de la caja la falsea.`;
+    $('amp-thr-note').textContent = t('set.ampThrNote', { v });
     if (P.amp) { P.amp.relThreshold = v / 100; P.amp.reset(); }
   });
   $('align').addEventListener('change', (e) => {
@@ -1019,15 +1079,15 @@ function wire() {
     const w = $('table-wrap');
     w.hidden = !w.hidden;
     $('btn-table').setAttribute('aria-expanded', String(!w.hidden));
-    $('btn-table').textContent = w.hidden ? 'Ver datos' : 'Ocultar datos';
+    $('btn-table').textContent = t(w.hidden ? 'chart.showData' : 'chart.hideData');
     if (!w.hidden) paintTable();
   });
 
   $('btn-cal').addEventListener('click', () => {
     if (cal.running) {
       cal.stop();
-      $('btn-cal').textContent = 'Iniciar medición';
-      $('cal-live').textContent = 'Medición detenida.';
+      $('btn-cal').textContent = t('cal.startBtn');
+      $('cal-live').textContent = t('cal.stopped');
     } else {
       startCalibration();
     }
@@ -1038,8 +1098,8 @@ function wire() {
   $('cb-apply').addEventListener('click', applyCalibration);
   $('cb-cancel').addEventListener('click', () => {
     cal.stop();
-    $('btn-cal').textContent = 'Iniciar medición';
-    $('cal-live').textContent = 'Medición detenida.';
+    $('btn-cal').textContent = t('cal.startBtn');
+    $('cal-live').textContent = t('cal.stopped');
   });
   $('cb-hide').addEventListener('click', () => {
     calDismissedFor = cal.deviceId;
@@ -1050,33 +1110,32 @@ function wire() {
     if (!cal.acceptCandidate()) return;
     paintCalList();
     P.tracker.reset();
-    setStatus(`Calibración de «${label}» reasignada a este dispositivo: ` +
-      `${cal.ppm >= 0 ? '+' : ''}${cal.ppm.toFixed(2)} ppm.`);
+    setStatus(t('cal.adopted', { label, ppm: signed(cal.ppm, 2) }));
   });
 
   $('btn-cal-clear').addEventListener('click', paintCalList);
   $('btn-cal-clear').addEventListener('click', () => {
     cal.clear();
-    $('cal-live').textContent = 'Corrección borrada: la marcha vuelve a depender del cristal sin corregir.';
+    $('cal-live').textContent = t('cal.cleared');
   });
 
   $('pos-clear').addEventListener('click', () => {
     if (session.isEmpty) return;
-    if (!confirm(`Se borrarán las ${session.count} posiciones medidas. ¿Seguir?`)) return;
+    if (!confirm(t('pos.confirmClear', { n: session.count }))) return;
     session.reset();
     measureCancel();
   });
   $('pos-copy').addEventListener('click', async () => {
-    if (session.isEmpty) { setStatus('No hay posiciones que copiar.', true); return; }
+    if (session.isEmpty) { setStatus(t('pos.nothingToCopy'), true); return; }
     try {
       await navigator.clipboard.writeText(session.toText(sessionMeta()));
-      setStatus('Tabla de posiciones copiada al portapapeles.');
+      setStatus(t('pos.copied'));
     } catch {
-      setStatus('El navegador no ha dejado copiar. Usa CSV.', true);
+      setStatus(t('pos.copyFailed'), true);
     }
   });
   $('pos-csv').addEventListener('click', () => {
-    if (session.isEmpty) { setStatus('No hay posiciones que exportar.', true); return; }
+    if (session.isEmpty) { setStatus(t('pos.nothingToExport'), true); return; }
     const meta = sessionMeta();
     const name = (meta.reference || 'timegrapher').replace(/[^\w\-]+/g, '_');
     const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
@@ -1112,7 +1171,7 @@ function wire() {
   const wake = async () => {
     if (capture.state !== 'suspended') return;
     if ((await capture.resume()) === 'running') {
-      setStatus('Audio arrancado. Capturando.');
+      setStatus(t('status.audioStarted'));
     }
   };
   for (const ev of ['pointerdown', 'keydown', 'touchstart']) {
@@ -1123,13 +1182,15 @@ function wire() {
 /* -------------------------------------------------------------- arranque */
 
 async function init() {
+  applyStatic();
+
   if (location.protocol === 'file:') {
-    setStatus('Ábrelo por HTTP: los módulos ES y el micrófono no funcionan sobre file://. Ejecuta «python3 -m http.server 8000» en esta carpeta.', true);
+    setStatus(t('status.fileProtocol'), true);
     $('toggle').disabled = true;
     return;
   }
   if (!navigator.mediaDevices || !window.AudioWorkletNode) {
-    setStatus('Este navegador no soporta getUserMedia + AudioWorklet.', true);
+    setStatus(t('status.unsupported'), true);
     $('toggle').disabled = true;
     return;
   }
@@ -1137,22 +1198,20 @@ async function init() {
   // rechazada es invisible salvo que se abran las herramientas de desarrollo,
   // cosa poco práctica en un banco de trabajo o en el móvil.
   window.addEventListener('error', (e) => {
-    setStatus(`Error: ${e.message} (${e.filename || ''}:${e.lineno || ''})`, true);
+    setStatus(t('status.error', { msg: `${e.message} (${e.filename || ''}:${e.lineno || ''})` }), true);
   });
   window.addEventListener('unhandledrejection', (e) => {
-    setStatus(`Error sin capturar: ${e.reason && e.reason.message ? e.reason.message : e.reason}`, true);
+    setStatus(t('status.unhandled', { msg: e.reason && e.reason.message ? e.reason.message : e.reason }), true);
   });
 
   wire();
   try {
     await refreshDevices();
   } catch {
-    setStatus('Pulsa Iniciar para conceder permiso de micrófono.');
+    setStatus(t('app.permissionHint'));
   }
   navigator.mediaDevices.addEventListener?.('devicechange', () => refreshDevices($('device').value));
-  paintCalList();
-  paintPositions();
-  redraw();
+  applyLanguage();
   setInterval(update, 200);
 }
 
