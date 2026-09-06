@@ -36,28 +36,28 @@
 
   <section class="tiles" data-i18n-aria="app.readings" aria-label="Lecturas">
     <div class="tile">
-      <div class="tile-label" data-i18n="tile.rate"></div>
+      <div class="tile-label"><span data-i18n="tile.rate"></span><button type="button" class="info" data-info="info.rate" data-i18n-aria="info.more"></button></div>
       <div class="tile-value" id="v-rate">—</div>
       <div class="tile-unit" data-i18n="tile.rateUnit"></div>
       <div class="chip" id="c-rate"><span class="dot"></span><span class="chip-text"></span></div>
       <div class="tile-note" id="n-rate"></div>
     </div>
     <div class="tile">
-      <div class="tile-label" data-i18n="tile.amplitude"></div>
+      <div class="tile-label"><span data-i18n="tile.amplitude"></span><button type="button" class="info" data-info="info.amplitude" data-i18n-aria="info.more"></button></div>
       <div class="tile-value" id="v-amp">—</div>
       <div class="tile-unit" data-i18n="tile.amplitudeUnit"></div>
       <div class="chip" id="c-amp"><span class="dot"></span><span class="chip-text"></span></div>
       <div class="tile-note" id="n-amp"></div>
     </div>
     <div class="tile">
-      <div class="tile-label" data-i18n="tile.beat"></div>
+      <div class="tile-label"><span data-i18n="tile.beat"></span><button type="button" class="info" data-info="info.beat" data-i18n-aria="info.more"></button></div>
       <div class="tile-value" id="v-beat">—</div>
       <div class="tile-unit" data-i18n="tile.beatUnit"></div>
       <div class="chip" id="c-beat"><span class="dot"></span><span class="chip-text"></span></div>
       <div class="tile-note" id="n-beat"></div>
     </div>
     <div class="tile">
-      <div class="tile-label" data-i18n="tile.bph"></div>
+      <div class="tile-label"><span data-i18n="tile.bph"></span><button type="button" class="info" data-info="info.bph" data-i18n-aria="info.more"></button></div>
       <div class="tile-value" id="v-bph">—</div>
       <div class="tile-unit" data-i18n="tile.bphUnit"></div>
       <div class="chip" id="c-bph"><span class="dot"></span><span class="chip-text"></span></div>
@@ -67,7 +67,7 @@
 
   <section class="card positions-card">
     <div class="card-head">
-      <h2 data-i18n="pos.section"></h2>
+      <h2 data-i18n="pos.section"></h2><button type="button" class="info" data-info="info.positions" data-i18n-aria="info.more"></button>
       <input id="pos-ref" class="ref-input" data-i18n-placeholder="pos.reference" maxlength="60">
       <div class="card-tools">
         <button id="pos-copy" class="ghost" data-i18n="pos.copy"></button>
@@ -83,7 +83,7 @@
   <section class="panels">
     <div class="card tape-card">
       <div class="card-head">
-        <h2 data-i18n="tape.section"></h2>
+        <h2 data-i18n="tape.section"></h2><button type="button" class="info" data-info="info.tape" data-i18n-aria="info.more"></button>
         <div class="legend">
           <span class="key"><i style="background:var(--s1)"></i><span data-i18n="tape.tic"></span></span>
           <span class="key"><i style="background:var(--s2)"></i><span data-i18n="tape.tac"></span></span>
@@ -111,7 +111,7 @@
 
     <div class="card charts-card">
       <div class="card-head">
-        <h2 data-i18n="chart.section"></h2>
+        <h2 data-i18n="chart.section"></h2><button type="button" class="info" data-info="info.charts" data-i18n-aria="info.more"></button>
         <div class="card-tools">
           <label><span data-i18n="chart.window"></span>
             <select id="chart-span">
@@ -154,7 +154,7 @@
           </div>
         </label>
         <label class="field">
-          <span data-i18n="set.lift"></span>
+          <span data-i18n="set.lift"></span><button type="button" class="info" data-info="info.lift" data-i18n-aria="info.more"></button>
           <div class="row">
             <input type="number" id="lift" value="52" min="20" max="80" step="0.5">
             <select id="lift-preset"></select>
@@ -193,7 +193,7 @@
           <small id="sens-note"></small>
         </label>
         <label class="field">
-          <span data-i18n="set.quality"></span>
+          <span data-i18n="set.quality"></span><button type="button" class="info" data-info="info.quality" data-i18n-aria="info.more"></button>
           <div class="meter"><div id="quality-bar"></div></div>
           <small id="quality-note"></small>
         </label>
@@ -211,7 +211,7 @@
     </details>
 
     <details id="cal-details">
-      <summary data-i18n="cal.section"></summary>
+      <summary><span data-i18n="cal.section"></span><button type="button" class="info" data-info="info.calibration" data-i18n-aria="info.more"></button></summary>
       <div class="cal">
         <p class="cal-why" data-i18n-html="cal.why"></p>
         <div class="cal-state">

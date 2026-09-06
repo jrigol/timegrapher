@@ -285,6 +285,46 @@ console.log('\nRutas de dibujado');
   check('gráfico con un solo punto', !threw, threw ? threw.message : '');
 }
 
+/* La ayuda contextual solo sirve si está completa y dice algo. */
+console.log('\nAyuda contextual');
+{
+  const fs = await import('node:fs');
+  const i18n = await import('../js/i18n.js');
+  const { t, setLang, keysOf } = i18n;
+
+  const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const app = fs.readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  const usedKeys = [
+    ...[...html.matchAll(/data-info="([^"]+)"/g)].map((m) => m[1]),
+    ...[...app.matchAll(/'(info\.[a-zA-Z]+)'/g)].map((m) => m[1]),
+  ];
+  const used = new Set(usedKeys);
+  const declared = keysOf('es').filter((k) => k.startsWith('info.'));
+
+  check('hay botones de ayuda en el marcado',
+    [...html.matchAll(/class="info"/g)].length >= 8,
+    `${[...html.matchAll(/class="info"/g)].length} en index.html`);
+
+  const unknown = [...used].filter((k) => !declared.includes(k));
+  check('toda clave de ayuda usada existe', unknown.length === 0, unknown.join(', '));
+  const orphan = declared.filter((k) => k !== 'info.more' && !used.has(k));
+  check('no hay textos de ayuda huérfanos', orphan.length === 0, orphan.join(', '));
+
+  // Un texto de ayuda de una línea no explica nada; el objetivo es enseñar.
+  for (const lang of ['es', 'en']) {
+    setLang(lang, { persist: false });
+    const brief = declared.filter((k) => k !== 'info.more' && t(k).length < 120);
+    check(`los textos de ${lang} explican de verdad`, brief.length === 0, brief.join(', '));
+  }
+  setLang('es', { persist: false });
+
+  // Los conceptos que un novato no puede adivinar tienen que estar cubiertos.
+  for (const k of ['info.rate', 'info.amplitude', 'info.beat', 'info.bph',
+                   'info.delta', 'info.drop', 'info.tape', 'info.lift']) {
+    check(`cubierto: ${k.slice(5)}`, used.has(k));
+  }
+}
+
 /* La paleta no es cuestión de gusto: cada papel se asignó midiendo, y esta
    prueba fija ese contrato para que un retoque futuro no lo rompa en silencio. */
 console.log('\nPaleta del tema');

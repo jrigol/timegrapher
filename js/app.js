@@ -9,6 +9,7 @@ import { POSITIONS, PositionSession, judgeDelta, judgeDrop, posName, posCode } f
 import { t, nf, signed, int, locale, setLang, getLang, detectLang, applyStatic, LANGS } from './i18n.js';
 import { PaperTape } from './ui/paper.js';
 import { TimeSeries } from './ui/charts.js';
+import { initTooltips, refreshTooltips } from './ui/tooltip.js';
 import { T } from './ui/theme.js';
 
 const $ = (id) => document.getElementById(id);
@@ -436,8 +437,10 @@ function paintPosSummary(sum) {
   }
   const dj = judgeDelta(sum.delta, sum.count);
   const rj = judgeDrop(sum.drop);
-  const stat = (cls, k, v, n) =>
-    `<div class="pos-stat ${cls}"><span class="k">${k}</span><span class="v">${v}</span><span class="n">${n}</span></div>`;
+  const stat = (cls, k, v, n, info) =>
+    `<div class="pos-stat ${cls}"><span class="k">${k}` +
+    (info ? `<button type="button" class="info" data-info="${info}" aria-label="${t('info.more')}"></button>` : '') +
+    `</span><span class="v">${v}</span><span class="n">${n}</span></div>`;
 
   let html = stat(dj.level, t('pos.delta'),
     sum.count > 1 ? `${nf(sum.delta, 1)} ${t('tile.rateUnit')}` : '—',
@@ -447,17 +450,18 @@ function paintPosSummary(sum) {
           min: `${sum.min.code} ${signed(sum.min.rate, 1)}`,
           verdict: dj.text,
         })
-      : dj.text);
+      : dj.text, 'info.delta');
 
   if (sum.drop != null) {
     html += stat(rj.level, t('pos.drop'), `${Math.round(sum.drop)}°`,
-      t('pos.dropDetail', { h: Math.round(sum.horiz), v: Math.round(sum.vert), verdict: rj.text }));
+      t('pos.dropDetail', { h: Math.round(sum.horiz), v: Math.round(sum.vert), verdict: rj.text }),
+      'info.drop');
   } else {
-    html += stat('', t('pos.drop'), '—', t('pos.dropNeed'));
+    html += stat('', t('pos.drop'), '—', t('pos.dropNeed'), 'info.drop');
   }
 
   html += stat('', t('pos.beatMax'), `${nf(sum.beatMax, 2)} ms`,
-    t('pos.beatMaxDetail', { n: sum.count }));
+    t('pos.beatMaxDetail', { n: sum.count }), 'info.beatMax');
   el.innerHTML = html;
 }
 
@@ -966,6 +970,7 @@ function applyLanguage() {
   chBeat.title = t('tile.beat'); chBeat.unit = 'ms';
 
   buildLiftPresets();
+  refreshTooltips();
   // La rejilla se reconstruye para que los títulos de tecla se retraduzcan.
   $('pos-grid').innerHTML = '';
   paintPositions();
@@ -1211,6 +1216,7 @@ async function init() {
     setStatus(t('app.permissionHint'));
   }
   navigator.mediaDevices.addEventListener?.('devicechange', () => refreshDevices($('device').value));
+  initTooltips();
   applyLanguage();
   setInterval(update, 200);
 }
